@@ -1,5 +1,7 @@
 # GSTU-ParsingTool
 
+[![Python CI](https://github.com/gitLute/GSTU-ParsingTool/actions/workflows/python-ci.yml/badge.svg)](https://github.com/gitLute/GSTU-ParsingTool/actions/workflows/python-ci.yml)
+
 Консольная утилита для получения и форматирования расписания занятий групп
 Гомельского государственного технического университета им. П. О. Сухого
 через публичное API (`https://sc.gstu.by`).
