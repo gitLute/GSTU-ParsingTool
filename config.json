@@ -1,0 +1,12 @@
+{
+  "group": "iti-31",
+  "api_base_url": "https://sc.gstu.by/api/schedules/group/",
+  "api_url": null,
+  "subgroup": null,
+  "view": "week",
+  "date": null,
+  "semester_start": null,
+  "output_format": "console",
+  "output_dir": "out",
+  "output_file": null
+}

@@ -1,0 +1,85 @@
+"""Загрузка конфигурации из JSON-файла и задание значений по умолчанию."""
+
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import dataclass, fields
+from typing import Optional
+
+from .fetcher import DEFAULT_API_BASE_URL
+
+DEFAULT_CONFIG_PATH = "config.json"
+
+
+@dataclass
+class Config:
+    """Параметры запуска (совместимо с config.json)."""
+
+    # Группа (slug), например "iti-31".
+    group: str = "iti-31"
+    # Базовый URL API. Полный URL строится как {api_base_url}/{group}.
+    api_base_url: str = DEFAULT_API_BASE_URL
+    # Полный URL API; если задан, используется как есть.
+    api_url: Optional[str] = None
+    # Номер подгруппы (1, 2, ...). null — показывать обе.
+    subgroup: Optional[int] = None
+    # Формат показа: "date" — конкретная дата, "week" — неделя.
+    view: str = "week"
+    # Опорная дата (YYYY-MM-DD), по умолчанию сегодня.
+    date: Optional[str] = None
+    # Начало первой недели семестра (YYYY-MM-DD); null — вычисляется из API.
+    semester_start: Optional[str] = None
+    # Формат вывода: console | md | json | all.
+    output_format: str = "console"
+    # Каталог для файлов при output_format md/json/all.
+    output_dir: str = "out"
+    # Имя файла вывода (без расширения); по умолчанию генерируется.
+    output_file: Optional[str] = None
+
+    def effective_api_url(self) -> str:
+        if self.api_url:
+            return self.api_url
+        base = self.api_base_url.rstrip("/")
+        if not base.endswith("/api/schedules/group"):
+            base += "/api/schedules/group"
+        return f"{base}/{self.group}"
+
+
+def load_config(path: str = DEFAULT_CONFIG_PATH) -> Config:
+    """Читает конфиг из JSON, дополняя отсутствующие поля значениями по умолчанию."""
+    cfg = Config()
+    if not os.path.exists(path):
+        return cfg
+    with open(path, encoding="utf-8") as fh:
+        raw = json.load(fh)
+    if not isinstance(raw, dict):
+        raise ValueError(f"Конфиг {path}: ожидается JSON-объект")
+    known = {f.name: f for f in fields(Config)}
+    for key, value in raw.items():
+        if key not in known:
+            raise ValueError(f"Конфиг {path}: неизвестное поле '{key}'")
+        setattr(cfg, key, value)
+    return cfg
+
+
+def dump_default_config(path: str = DEFAULT_CONFIG_PATH) -> None:
+    """Записывает конфиг по умолчанию (если файла ещё нет)."""
+    if os.path.exists(path):
+        return
+    cfg = Config()
+    data = {
+        "group": cfg.group,
+        "api_base_url": cfg.api_base_url,
+        "api_url": cfg.api_url,
+        "subgroup": cfg.subgroup,
+        "view": cfg.view,
+        "date": cfg.date,
+        "semester_start": cfg.semester_start,
+        "output_format": cfg.output_format,
+        "output_dir": cfg.output_dir,
+        "output_file": cfg.output_file,
+    }
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
