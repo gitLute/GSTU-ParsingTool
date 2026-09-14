@@ -42,12 +42,18 @@ def _short_time(value: str) -> str:
 
 
 def _subgroup_label(item: ScheduleItem) -> str:
-    if item.scope == "subgroups" and item.subgroup_numbers:
+    name = item.group_name or "группа"
+    if item.subgroup_numbers:
         nums = ", ".join(str(n) for n in item.subgroup_numbers)
-        return f"подгр. {nums}"
-    if item.scope == "stream" and item.other_groups:
-        return "поток: " + ", ".join(item.other_groups)
-    return "группа"
+        label = f"{name}, подгр. {nums}"
+        if item.other_groups:
+            label += " + " + ", ".join(item.other_groups)
+        return label
+    if item.other_groups:
+        members = [item.group_name] if item.group_name else []
+        members += item.other_groups
+        return "поток: " + ", ".join(m for m in members if m)
+    return name
 
 
 def _lesson_dict(item: ScheduleItem, day: dt.date) -> dict[str, Any]:

@@ -13,11 +13,13 @@ from gstu_schedule.engine import (
     term_start,
     week_number,
 )
+from gstu_schedule.formatters import _subgroup_label
 from gstu_schedule.models import (
     WEEK_ALL,
     WEEK_EVEN,
     WEEK_ODD,
     SCOPE_FULL,
+    SCOPE_STREAM,
     SCOPE_SUBGROUPS,
     ScheduleItem,
     parse_payload,
@@ -30,6 +32,7 @@ def item_factory(
     subgroup_numbers: list[int] | None = None,
     scope: str = SCOPE_FULL,
     lesson_type_short: str | None = "лаб",
+    group_name: str = "ИТИ-31",
 ) -> ScheduleItem:
     numbers = subgroup_numbers or []
     scope = SCOPE_SUBGROUPS if numbers else scope
@@ -48,6 +51,8 @@ def item_factory(
         lesson_type_short=lesson_type_short,
         subgroup_numbers=numbers,
         scope=scope,
+        other_groups=[],
+        group_name=group_name,
     )
 
 
@@ -152,6 +157,7 @@ class ParseTests(unittest.TestCase):
         item = items[0]
         self.assertEqual(item.subgroup_numbers, [2])
         self.assertEqual(item.scope, SCOPE_SUBGROUPS)
+        self.assertEqual(item.group_name, "ИТИ-31")
         self.assertEqual(item.subject_name, "Визуальные средства")
         self.assertEqual(item.week_type, WEEK_ALL)
 
@@ -178,6 +184,28 @@ class LessonTypeTests(unittest.TestCase):
         no_type = item_factory("MONDAY", WEEK_ALL, lesson_type_short=None)
         self.assertTrue(lesson_type_matches(no_type, [TYPE_NONE]))
         self.assertFalse(lesson_type_matches(no_type, ["лаб"]))
+
+
+class LabelTests(unittest.TestCase):
+    def test_full_group_shows_group_name(self):
+        item = item_factory("MONDAY", WEEK_ALL, scope=SCOPE_FULL)
+        self.assertEqual(_subgroup_label(item), "ИТИ-31")
+
+    def test_subgroup_includes_group_name(self):
+        item = item_factory(
+            "MONDAY", WEEK_ALL, subgroup_numbers=[1], scope=SCOPE_SUBGROUPS
+        )
+        self.assertEqual(_subgroup_label(item), "ИТИ-31, подгр. 1")
+
+    def test_stream_includes_main_group(self):
+        item = item_factory("MONDAY", WEEK_ALL, scope=SCOPE_STREAM)
+        item.other_groups = ["ИТП-31", "ИТД-31"]
+        self.assertEqual(_subgroup_label(item), "поток: ИТИ-31, ИТП-31, ИТД-31")
+
+    def test_stream_without_main_group_name(self):
+        item = item_factory("MONDAY", WEEK_ALL, group_name="", scope=SCOPE_STREAM)
+        item.other_groups = ["ИТП-31"]
+        self.assertEqual(_subgroup_label(item), "поток: ИТП-31")
 
 
 class TermStartTests(unittest.TestCase):

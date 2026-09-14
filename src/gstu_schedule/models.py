@@ -128,6 +128,8 @@ class ScheduleItem:
     scope: str = SCOPE_FULL
     # Имена других групп в совместном занятии (для SCOPE_STREAM).
     other_groups: list[str] = field(default_factory=list)
+    # Название запрошенной группы (например "ИТИ-31").
+    group_name: str = ""
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -193,7 +195,9 @@ def _resolve_scope(
     return [], SCOPE_FULL, others
 
 
-def parse_schedule_item(item_raw: dict[str, Any], group_slug: str) -> ScheduleItem:
+def parse_schedule_item(
+    item_raw: dict[str, Any], group_slug: str, group_name: str = ""
+) -> ScheduleItem:
     lesson_type = item_raw.get("lessonType")
     subgroup_numbers, scope, other_groups = _resolve_scope(item_raw, group_slug)
     return ScheduleItem(
@@ -214,6 +218,7 @@ def parse_schedule_item(item_raw: dict[str, Any], group_slug: str) -> ScheduleIt
         subgroup_numbers=subgroup_numbers,
         scope=scope,
         other_groups=other_groups,
+        group_name=group_name,
         raw=item_raw,
     )
 
@@ -226,6 +231,7 @@ def parse_payload(
     data = payload.get("data") or {}
     entity = parse_entity(data.get("entity") or {})
     items = [
-        parse_schedule_item(it, group_slug) for it in data.get("scheduleItems") or []
+        parse_schedule_item(it, group_slug, entity.name)
+        for it in data.get("scheduleItems") or []
     ]
     return entity, items
