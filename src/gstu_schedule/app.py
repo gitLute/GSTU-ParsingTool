@@ -76,7 +76,7 @@ def run(cfg: Config) -> int:
         dates = [ref]
         title = _date_title(ref, t_start)
 
-    scheduled = scheduled_days(items, dates, cfg.subgroup, t_start)
+    scheduled = scheduled_days(items, dates, cfg.subgroup, t_start, cfg.lesson_types)
 
     formats = (
         ["console", "md", "json"] if cfg.output_format == "all" else [cfg.output_format]
@@ -84,17 +84,23 @@ def run(cfg: Config) -> int:
 
     for fmt in formats:
         if fmt == "console":
-            text = format_console(entity, dates, scheduled, cfg.subgroup, title)
+            text = format_console(
+                entity, dates, scheduled, cfg.subgroup, cfg.lesson_types, title
+            )
             print(text)
         else:
             _ensure_dir(cfg.output_dir)
             base_name = _output_name(cfg, cfg.view, ref)
             if fmt == "md":
                 ext = "md"
-                content = format_md(entity, dates, scheduled, cfg.subgroup, title)
+                content = format_md(
+                    entity, dates, scheduled, cfg.subgroup, cfg.lesson_types, title
+                )
             elif fmt == "json":
                 ext = "json"
-                content = format_json(entity, dates, scheduled, cfg.subgroup, title)
+                content = format_json(
+                    entity, dates, scheduled, cfg.subgroup, cfg.lesson_types, title
+                )
             else:
                 continue
             out_path = os.path.join(cfg.output_dir, f"{base_name}.{ext}")

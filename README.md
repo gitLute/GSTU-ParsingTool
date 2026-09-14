@@ -76,6 +76,7 @@ python3 src/main.py
 | `--group SLUG` | группа, например `iti-31` |
 | `--api-url URL` | полный URL API (перекрывает `api_base_url`+`group`) |
 | `--subgroup N` | номер подгруппы; без указания показываются обе |
+| `--lesson-type ТИП` | тип занятия: `лаб`, `лек`, `пр`, …; можно несколько раз, `none` — без типа |
 | `--view week\|date` | формат показа: неделя или конкретная дата |
 | `--date YYYY-MM-DD` | опорная дата (по умолчанию сегодня) |
 | `--format console\|md\|json\|all` | формат вывода |
@@ -91,6 +92,7 @@ python3 src/main.py
   "api_base_url": "https://sc.gstu.by/api/schedules/group/",
   "api_url": null,
   "subgroup": null,
+  "lesson_types": [],
   "view": "week",
   "date": null,
   "semester_start": null,
@@ -101,6 +103,8 @@ python3 src/main.py
 ```
 
 - `subgroup`: `null` (обе), `1`, `2`, …;
+- `lesson_types`: список коротких имён типов занятий (`["лаб", "лек"]`);
+  пустой список — все типы; элемент `"none"` — занятия без типа;
 - `view`: `"week"` — неделя вокруг даты, `"date"` — одна дата;
 - `date`: опорная дата, при `null` берётся сегодня;
 - `semester_start`: понедельник первой недели семестра. При `null`
@@ -124,6 +128,12 @@ PYTHONPATH=src python3 -m gstu_schedule --date 2026-09-21 --format all
 
 # Только подгруппа 2, формат markdown, в произвольный файл
 PYTHONPATH=src python3 -m gstu_schedule --subgroup 2 --format md --output-file my_schedule
+
+# Только лекции и лабораторные (неделя по умолчанию)
+PYTHONPATH=src python3 -m gstu_schedule --lesson-type лек --lesson-type лаб
+
+# Только занятия без типа (физкультура, кураторский час)
+PYTHONPATH=src python3 -m gstu_schedule --lesson-type none
 
 # Другая группа
 PYTHONPATH=src python3 -m gstu_schedule --group itp-31

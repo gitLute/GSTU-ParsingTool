@@ -33,6 +33,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="номер подгруппы; если не указан — показываются обе",
     )
     parser.add_argument(
+        "--lesson-type",
+        dest="lesson_types",
+        action="append",
+        metavar="ТИП",
+        help="тип занятия (лаб, лек, пр, ...); можно указать несколько раз, "
+        "значение 'none' — занятия без типа",
+    )
+    parser.add_argument(
         "--view",
         choices=("week", "date"),
         help="формат показа: week — неделя, date — конкретная дата",
@@ -66,6 +74,8 @@ def apply_args(cfg: Config, args: argparse.Namespace) -> Config:
         cfg.api_url = args.api_url
     if args.subgroup is not None:
         cfg.subgroup = args.subgroup
+    if args.lesson_types is not None:
+        cfg.lesson_types = list(args.lesson_types)
     if args.view is not None:
         cfg.view = args.view
     if args.date is not None:

@@ -130,6 +130,7 @@ def format_console(
     dates: list[dt.date],
     scheduled: dict[dt.date, list[ScheduleItem]],
     subgroup_number: Optional[int],
+    lesson_types: Optional[list[str]],
     title: str,
 ) -> str:
     lines: list[str] = []
@@ -139,6 +140,8 @@ def format_console(
     lines.append(f" {title}")
     if subgroup_number is not None:
         lines.append(f" Подгруппа: {subgroup_number}")
+    if lesson_types:
+        lines.append(f" Тип занятия: {', '.join(lesson_types)}")
     lines.append(f"{'=' * 72}")
     lines.append("")
     for day in dates:
@@ -181,6 +184,7 @@ def format_md(
     dates: list[dt.date],
     scheduled: dict[dt.date, list[ScheduleItem]],
     subgroup_number: Optional[int],
+    lesson_types: Optional[list[str]],
     title: str,
 ) -> str:
     lines: list[str] = []
@@ -189,6 +193,8 @@ def format_md(
     lines.append(f"{title}")
     if subgroup_number is not None:
         lines.append(f"Подгруппа: **{subgroup_number}**")
+    if lesson_types:
+        lines.append(f"Тип занятия: **{', '.join(lesson_types)}**")
     lines.append("")
     for day in dates:
         lines.append(_md_day_section(day, scheduled.get(day, [])))
@@ -203,6 +209,7 @@ def format_json(
     dates: list[dt.date],
     scheduled: dict[dt.date, list[ScheduleItem]],
     subgroup_number: Optional[int],
+    lesson_types: Optional[list[str]],
     title: str,
 ) -> str:
     data: dict[str, Any] = {
@@ -217,7 +224,11 @@ def format_json(
             "specialty": {"name": entity.specialty_name, "code": entity.specialty_code},
             "subgroups": entity.subgroups,
         },
-        "scope": {"title": title, "subgroup": subgroup_number},
+        "scope": {
+            "title": title,
+            "subgroup": subgroup_number,
+            "lessonTypes": list(lesson_types or []),
+        },
         "days": build_days_data(entity, dates, scheduled),
     }
     return json.dumps(data, ensure_ascii=False, indent=2)

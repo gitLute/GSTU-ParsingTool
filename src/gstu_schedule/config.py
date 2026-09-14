@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from typing import Optional
 
 from .fetcher import DEFAULT_API_BASE_URL
@@ -24,6 +24,9 @@ class Config:
     api_url: Optional[str] = None
     # Номер подгруппы (1, 2, ...). null — показывать обе.
     subgroup: Optional[int] = None
+    # Фильтр по типу занятия: ["лаб", "лек", ...]. Пустой список — все.
+    # Значение "none" соответствует занятиям без типа.
+    lesson_types: list = field(default_factory=list)
     # Формат показа: "date" — конкретная дата, "week" — неделя.
     view: str = "week"
     # Опорная дата (YYYY-MM-DD), по умолчанию сегодня.
@@ -46,6 +49,15 @@ class Config:
         return f"{base}/{self.group}"
 
 
+def _coerce_lesson_types(value) -> list[str]:
+    """Принимает список или строку с типами, разделёнными запятыми."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [t.strip() for t in value.split(",") if t.strip()]
+    return [str(t) for t in value]
+
+
 def load_config(path: str = DEFAULT_CONFIG_PATH) -> Config:
     """Читает конфиг из JSON, дополняя отсутствующие поля значениями по умолчанию."""
     cfg = Config()
@@ -59,6 +71,8 @@ def load_config(path: str = DEFAULT_CONFIG_PATH) -> Config:
     for key, value in raw.items():
         if key not in known:
             raise ValueError(f"Конфиг {path}: неизвестное поле '{key}'")
+        if key == "lesson_types":
+            value = _coerce_lesson_types(value)
         setattr(cfg, key, value)
     return cfg
 
@@ -73,6 +87,7 @@ def dump_default_config(path: str = DEFAULT_CONFIG_PATH) -> None:
         "api_base_url": cfg.api_base_url,
         "api_url": cfg.api_url,
         "subgroup": cfg.subgroup,
+        "lesson_types": cfg.lesson_types,
         "view": cfg.view,
         "date": cfg.date,
         "semester_start": cfg.semester_start,

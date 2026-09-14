@@ -3,6 +3,7 @@
   "api_base_url": "https://sc.gstu.by/api/schedules/group/",
   "api_url": null,
   "subgroup": null,
+  "lesson_types": [],
   "view": "week",
   "date": null,
   "semester_start": null,

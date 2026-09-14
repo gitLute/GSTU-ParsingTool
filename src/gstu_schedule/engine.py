@@ -60,6 +60,28 @@ def subgroup_matches(item: ScheduleItem, subgroup_number: Optional[int]) -> bool
     return subgroup_number in item.subgroup_numbers
 
 
+# Значение фильтра, соответствующее занятиям без типа (lessonType == null).
+TYPE_NONE = "none"
+
+
+def lesson_type_matches(item: ScheduleItem, lesson_types: list[str]) -> bool:
+    """Фильтр по типу занятия (лаб, лек, пр, ...).
+
+    - Пустой список => все занятия.
+    - Значение "none" соответствует занятиям без типа (физкультура и т.п.).
+    - Сравнение регистронезависимое, по короткому имени типа.
+    """
+    if not lesson_types:
+        return True
+    wanted = {str(t).strip().lower() for t in lesson_types if str(t).strip()}
+    if not wanted:
+        return True
+    actual = (item.lesson_type_short or "").strip().lower()
+    if not actual:
+        actual = TYPE_NONE
+    return actual in wanted
+
+
 def week_days(value: dt.date) -> list[dt.date]:
     """Все дни недели (Пн..Вс), содержащие ``value``."""
     monday = value - dt.timedelta(days=value.weekday())
@@ -71,8 +93,10 @@ def scheduled_days(
     dates: list[dt.date],
     subgroup_number: Optional[int],
     term_start_date: dt.date,
+    lesson_types: Optional[list[str]] = None,
 ) -> dict[dt.date, list[ScheduleItem]]:
     """Раскладывает занятия по датам с учётом фильтров."""
+    lesson_types = lesson_types or []
     result: dict[dt.date, list[ScheduleItem]] = {}
     for day in dates:
         lessons = [
@@ -80,6 +104,7 @@ def scheduled_days(
             for it in items
             if item_applies_on(it, day, term_start_date)
             and subgroup_matches(it, subgroup_number)
+            and lesson_type_matches(it, lesson_types)
         ]
         lessons.sort(key=lambda it: (it.lesson_number, it.start_time))
         result[day] = lessons

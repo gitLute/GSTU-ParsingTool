@@ -6,7 +6,9 @@ import datetime as dt
 import unittest
 
 from gstu_schedule.engine import (
+    TYPE_NONE,
     item_applies_on,
+    lesson_type_matches,
     subgroup_matches,
     term_start,
     week_number,
@@ -27,6 +29,7 @@ def item_factory(
     week_type: str,
     subgroup_numbers: list[int] | None = None,
     scope: str = SCOPE_FULL,
+    lesson_type_short: str | None = "лаб",
 ) -> ScheduleItem:
     numbers = subgroup_numbers or []
     scope = SCOPE_SUBGROUPS if numbers else scope
@@ -42,7 +45,7 @@ def item_factory(
         subject_name="Предмет",
         subject_short_name="П",
         lesson_type_name=None,
-        lesson_type_short=None,
+        lesson_type_short=lesson_type_short,
         subgroup_numbers=numbers,
         scope=scope,
     )
@@ -151,6 +154,30 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(item.scope, SCOPE_SUBGROUPS)
         self.assertEqual(item.subject_name, "Визуальные средства")
         self.assertEqual(item.week_type, WEEK_ALL)
+
+
+class LessonTypeTests(unittest.TestCase):
+    def test_no_filter_shows_all(self):
+        lab = item_factory("MONDAY", WEEK_ALL, lesson_type_short="лаб")
+        none = item_factory("MONDAY", WEEK_ALL, lesson_type_short=None)
+        self.assertTrue(lesson_type_matches(lab, []))
+        self.assertTrue(lesson_type_matches(none, []))
+
+    def test_match_by_short_name_case_insensitive(self):
+        lab = item_factory("MONDAY", WEEK_ALL, lesson_type_short="лаб")
+        self.assertTrue(lesson_type_matches(lab, ["лаб"]))
+        self.assertTrue(lesson_type_matches(lab, ["ЛАБ"]))
+        self.assertFalse(lesson_type_matches(lab, ["лек"]))
+
+    def test_multiple_types(self):
+        item = item_factory("MONDAY", WEEK_ALL, lesson_type_short="лек")
+        self.assertTrue(lesson_type_matches(item, ["лаб", "лек"]))
+        self.assertFalse(lesson_type_matches(item, ["лаб", "пр"]))
+
+    def test_none_type(self):
+        no_type = item_factory("MONDAY", WEEK_ALL, lesson_type_short=None)
+        self.assertTrue(lesson_type_matches(no_type, [TYPE_NONE]))
+        self.assertFalse(lesson_type_matches(no_type, ["лаб"]))
 
 
 class TermStartTests(unittest.TestCase):
