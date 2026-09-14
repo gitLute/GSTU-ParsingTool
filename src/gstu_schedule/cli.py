@@ -41,6 +41,15 @@ def build_parser() -> argparse.ArgumentParser:
         "значение 'none' — занятия без типа",
     )
     parser.add_argument(
+        "--regex",
+        dest="regex_filter",
+        action="append",
+        metavar="PATTERN",
+        help="регулярное выражение для поиска по тексту занятия "
+        "(предмет, преподаватель, аудитория и т.п.); можно указать несколько "
+        "раз — занятие подходит, если совпало хотя бы одно",
+    )
+    parser.add_argument(
         "--view",
         choices=("week", "date"),
         help="формат показа: week — неделя, date — конкретная дата",
@@ -83,6 +92,8 @@ def apply_args(cfg: Config, args: argparse.Namespace) -> Config:
         cfg.subgroup = args.subgroup
     if args.lesson_types is not None:
         cfg.lesson_types = list(args.lesson_types)
+    if args.regex_filter is not None:
+        cfg.regex_filter = list(args.regex_filter)
     if args.view is not None:
         cfg.view = args.view
     if args.date is not None:

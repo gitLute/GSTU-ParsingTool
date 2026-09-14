@@ -75,6 +75,7 @@ python3 src/main.py
 | `--api-url URL` | полный URL API (перекрывает `api_base_url`+`group`) |
 | `--subgroup N` | номер подгруппы; без указания показываются обе |
 | `--lesson-type ТИП` | тип занятия: `лаб`, `лек`, `пр`, …; можно несколько раз, `none` — без типа |
+| `--regex PATTERN` | регулярное выражение для поиска по тексту занятия; можно несколько раз — подходит хотя бы одно |
 | `--view week\|date` | формат показа: неделя или конкретная дата |
 | `--date YYYY-MM-DD` | опорная дата (по умолчанию сегодня) |
 | `--format console\|md\|json\|all` | формат вывода |
@@ -92,6 +93,7 @@ python3 src/main.py
   "api_url": null,
   "subgroup": null,
   "lesson_types": [],
+  "regex_filter": null,
   "view": "week",
   "date": null,
   "semester_start": null,
@@ -105,6 +107,10 @@ python3 src/main.py
 - `subgroup`: `null` (обе), `1`, `2`, …;
 - `lesson_types`: список коротких имён типов занятий (`["лаб", "лек"]`);
   пустой список — все типы; элемент `"none"` — занятия без типа;
+- `regex_filter`: строка или список регулярных выражений; занятие
+  показывается, если его текст (предмет, преподаватель, аудитория, группы)
+  совпал хотя бы с одним шаблоном. Поиск регистронезависимый. `null` — без
+  фильтра;
 - `view`: `"week"` — неделя вокруг даты, `"date"` — одна дата;
 - `date`: опорная дата, при `null` берётся сегодня;
 - `semester_start`: понедельник первой недели семестра. При `null`
@@ -173,6 +179,15 @@ PYTHONPATH=src python3 -m gstu_schedule --lesson-type лек --lesson-type ла�
 
 # Только занятия без типа (физкультура, кураторский час)
 PYTHONPATH=src python3 -m gstu_schedule --lesson-type none
+
+# Только занятия, где в тексте есть "Разработка приложений" (регистронезависимо)
+PYTHONPATH=src python3 -m gstu_schedule --regex "разработка приложений"
+
+# Занятия у преподавателя Иванова или в аудитории 2-3xx
+PYTHONPATH=src python3 -m gstu_schedule --regex "иванов" --regex "2-3\d\d"
+
+# Regex + фильтр по типу: лабораторные по "Трехмерное моделирование" и "Двумерная визуализация"
+PYTHONPATH=src python3 -m gstu_schedule --lesson-type лаб --regex "\b(трех|дву)\w*"
 
 # Комбинация фильтров: 1-я подгруппа, только практические, свой формат пары
 PYTHONPATH=src python3 -m gstu_schedule --subgroup 1 --lesson-type пр \

@@ -7,7 +7,13 @@ import os
 import sys
 
 from .config import Config
-from .engine import scheduled_days, term_start, week_days, week_number
+from .engine import (
+    scheduled_days,
+    term_start,
+    validate_regex_filters,
+    week_days,
+    week_number,
+)
 from .fetcher import fetch_schedule
 from .formatters import format_console, format_json, format_md, validate_lesson_template
 from .models import Entity, ScheduleItem, parse_payload
@@ -83,6 +89,14 @@ def run(cfg: Config) -> int:
         )
         return 1
 
+    regex_errors = validate_regex_filters(cfg.regex_filter)
+    if regex_errors:
+        print(
+            "ОШИБКА: некорректные регулярные выражения: " + "; ".join(regex_errors),
+            file=sys.stderr,
+        )
+        return 1
+
     if cfg.view == "week":
         dates = week_days(ref)
         title = _week_title(ref, t_start)
@@ -90,7 +104,14 @@ def run(cfg: Config) -> int:
         dates = [ref]
         title = _date_title(ref, t_start)
 
-    scheduled = scheduled_days(items, dates, cfg.subgroup, t_start, cfg.lesson_types)
+    scheduled = scheduled_days(
+        items,
+        dates,
+        cfg.subgroup,
+        t_start,
+        cfg.lesson_types,
+        cfg.regex_filter,
+    )
 
     formats = (
         ["console", "md", "json"] if cfg.output_format == "all" else [cfg.output_format]
@@ -106,6 +127,7 @@ def run(cfg: Config) -> int:
                 cfg.lesson_types,
                 title,
                 cfg.lesson_format,
+                cfg.regex_filter,
             )
             print(text)
         else:
@@ -121,6 +143,7 @@ def run(cfg: Config) -> int:
                     cfg.lesson_types,
                     title,
                     cfg.lesson_format,
+                    cfg.regex_filter,
                 )
             elif fmt == "json":
                 ext = "json"
@@ -132,6 +155,7 @@ def run(cfg: Config) -> int:
                     cfg.lesson_types,
                     title,
                     cfg.lesson_format,
+                    cfg.regex_filter,
                 )
             else:
                 continue

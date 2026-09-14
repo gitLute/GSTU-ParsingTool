@@ -27,6 +27,9 @@ class Config:
     # Фильтр по типу занятия: ["лаб", "лек", ...]. Пустой список — все.
     # Значение "none" соответствует занятиям без типа.
     lesson_types: list = field(default_factory=list)
+    # Фильтр по регулярным выражениям: список шаблонов; занятие подходит,
+    # если его текст совпал хотя бы с одним. None — без фильтра.
+    regex_filter: Optional[list[str]] = None
     # Формат показа: "date" — конкретная дата, "week" — неделя.
     view: str = "week"
     # Опорная дата (YYYY-MM-DD), по умолчанию сегодня.
@@ -61,6 +64,15 @@ def _coerce_lesson_types(value) -> list[str]:
     return [str(t) for t in value]
 
 
+def _coerce_regex_filter(value) -> Optional[list[str]]:
+    """Принимает одну строку-шаблон или список шаблонов."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return [value]
+    return [str(t) for t in value]
+
+
 def load_config(path: str = DEFAULT_CONFIG_PATH) -> Config:
     """Читает конфиг из JSON, дополняя отсутствующие поля значениями по умолчанию."""
     cfg = Config()
@@ -76,6 +88,8 @@ def load_config(path: str = DEFAULT_CONFIG_PATH) -> Config:
             raise ValueError(f"Конфиг {path}: неизвестное поле '{key}'")
         if key == "lesson_types":
             value = _coerce_lesson_types(value)
+        elif key == "regex_filter":
+            value = _coerce_regex_filter(value)
         setattr(cfg, key, value)
     return cfg
 
@@ -91,6 +105,7 @@ def dump_default_config(path: str = DEFAULT_CONFIG_PATH) -> None:
         "api_url": cfg.api_url,
         "subgroup": cfg.subgroup,
         "lesson_types": cfg.lesson_types,
+        "regex_filter": cfg.regex_filter,
         "view": cfg.view,
         "date": cfg.date,
         "semester_start": cfg.semester_start,

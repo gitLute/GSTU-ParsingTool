@@ -204,6 +204,7 @@ def format_console(
     lesson_types: Optional[list[str]],
     title: str,
     lesson_format: Optional[str] = None,
+    regex_filter: Optional[list[str]] = None,
 ) -> str:
     lines: list[str] = []
     header = f"Расписание группы {entity.name}"
@@ -214,6 +215,8 @@ def format_console(
         lines.append(f" Подгруппа: {subgroup_number}")
     if lesson_types:
         lines.append(f" Тип занятия: {', '.join(lesson_types)}")
+    if regex_filter:
+        lines.append(f" Regex: {', '.join(regex_filter)}")
     lines.append(f"{'=' * 72}")
     lines.append("")
     for day in dates:
@@ -266,6 +269,7 @@ def format_md(
     lesson_types: Optional[list[str]],
     title: str,
     lesson_format: Optional[str] = None,
+    regex_filter: Optional[list[str]] = None,
 ) -> str:
     lines: list[str] = []
     lines.append(f"# Расписание группы {entity.name}")
@@ -275,6 +279,8 @@ def format_md(
         lines.append(f"Подгруппа: **{subgroup_number}**")
     if lesson_types:
         lines.append(f"Тип занятия: **{', '.join(lesson_types)}**")
+    if regex_filter:
+        lines.append(f"Regex: **{', '.join(regex_filter)}**")
     lines.append("")
     for day in dates:
         lines.append(_md_day_section(day, scheduled.get(day, []), lesson_format))
@@ -292,6 +298,7 @@ def format_json(
     lesson_types: Optional[list[str]],
     title: str,
     lesson_format: Optional[str] = None,
+    regex_filter: Optional[list[str]] = None,
 ) -> str:
     data: dict[str, Any] = {
         "group": {
@@ -310,6 +317,7 @@ def format_json(
             "subgroup": subgroup_number,
             "lessonTypes": list(lesson_types or []),
             "lessonFormat": lesson_format,
+            "regexFilter": list(regex_filter or []),
         },
         "days": build_days_data(entity, dates, scheduled, lesson_format),
     }

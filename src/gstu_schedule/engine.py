@@ -1,11 +1,15 @@
-"""Логика выбора занятий: фильтры по дате/неделе и подгруппе."""
+"""Логика выбора занятий: фильтры по дате/неделе, подгруппе и регулярным выражениям."""
 
 from __future__ import annotations
 
 import datetime as dt
+import re
 from typing import Optional
 
 from .models import DAY_ORDER, WEEK_ALL, WEEK_EVEN, WEEK_ODD, ScheduleItem, Entity
+
+# Сопоставление по регулярным выражениям ведётся регистронезависимо.
+REGEX_FLAGS = re.IGNORECASE
 
 # Число недель учитывается от старта семестра; weekType ODD/EVEN определяют чётность.
 WEEKDAYS_PERIOD = dt.timedelta(days=7)
@@ -82,6 +86,52 @@ def lesson_type_matches(item: ScheduleItem, lesson_types: list[str]) -> bool:
     return actual in wanted
 
 
+# ---------------------------------------------------------------------------
+# Regex
+
+
+def _item_haystack(item: ScheduleItem) -> str:
+    """Все текстовые поля занятия, склеенные в одну строку для поиска."""
+    parts: list[str] = [
+        item.subject_name,
+        item.subject_short_name,
+        item.lesson_type_name or "",
+        item.lesson_type_short or "",
+        item.group_name,
+        " ".join(str(n) for n in item.subgroup_numbers),
+    ]
+    parts.extend(item.teachers)
+    parts.extend(item.classrooms)
+    parts.extend(item.other_groups)
+    return "\n".join(p for p in parts if p.strip())
+
+
+def validate_regex_filters(patterns: list[str] | None) -> list[str]:
+    """Проверяет корректность шаблонов. Возвращает список ошибок (пусто — ок)."""
+    errors: list[str] = []
+    for p in patterns or []:
+        try:
+            re.compile(p, REGEX_FLAGS)
+        except re.error as exc:
+            errors.append(f"{p!r}: {exc}")
+    return errors
+
+
+def regex_matches(item: ScheduleItem, patterns: list[str] | None) -> bool:
+    """Попадает ли занятие хотя бы под один из шаблонов.
+
+    - ``None`` / пустой список → пропускаем проверку (всё проходит);
+    - несколько шаблонов связываются через OR (любой совпал — ок).
+    """
+    if not patterns:
+        return True
+    hay = _item_haystack(item)
+    for p in patterns:
+        if re.search(p, hay, REGEX_FLAGS):
+            return True
+    return False
+
+
 def week_days(value: dt.date) -> list[dt.date]:
     """Все дни недели (Пн..Вс), содержащие ``value``."""
     monday = value - dt.timedelta(days=value.weekday())
@@ -94,6 +144,7 @@ def scheduled_days(
     subgroup_number: Optional[int],
     term_start_date: dt.date,
     lesson_types: Optional[list[str]] = None,
+    regex_filter: Optional[list[str]] = None,
 ) -> dict[dt.date, list[ScheduleItem]]:
     """Раскладывает занятия по датам с учётом фильтров."""
     lesson_types = lesson_types or []
@@ -105,6 +156,7 @@ def scheduled_days(
             if item_applies_on(it, day, term_start_date)
             and subgroup_matches(it, subgroup_number)
             and lesson_type_matches(it, lesson_types)
+            and regex_matches(it, regex_filter)
         ]
         lessons.sort(key=lambda it: (it.lesson_number, it.start_time))
         result[day] = lessons

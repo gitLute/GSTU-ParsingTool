@@ -9,8 +9,11 @@ from gstu_schedule.engine import (
     TYPE_NONE,
     item_applies_on,
     lesson_type_matches,
+    regex_matches,
+    scheduled_days,
     subgroup_matches,
     term_start,
+    validate_regex_filters,
     week_number,
 )
 from gstu_schedule.formatters import (
@@ -211,6 +214,55 @@ class LabelTests(unittest.TestCase):
         item = item_factory("MONDAY", WEEK_ALL, group_name="", scope=SCOPE_STREAM)
         item.other_groups = ["ИТП-31"]
         self.assertEqual(_subgroup_label(item), "поток: ИТП-31")
+
+
+class RegexTests(unittest.TestCase):
+    def _item(self, **kwargs) -> ScheduleItem:
+        item = item_factory("MONDAY", WEEK_ALL, **kwargs)
+        item.teachers = ["Иванов И.И."]
+        item.classrooms = ["2-309"]
+        return item
+
+    def test_no_filter_matches_all(self):
+        self.assertTrue(regex_matches(self._item(), None))
+        self.assertTrue(regex_matches(self._item(), []))
+
+    def test_match_subject_case_insensitive(self):
+        item = self._item()
+        self.assertTrue(regex_matches(item, ["предмет"]))
+        self.assertTrue(regex_matches(item, ["ПРЕДМЕТ"]))
+        self.assertFalse(regex_matches(item, ["физика"]))
+
+    def test_match_teacher_or_room(self):
+        item = self._item()
+        self.assertTrue(regex_matches(item, [r"иванов"]))
+        self.assertTrue(regex_matches(item, [r"2-3\d\d"]))
+        self.assertFalse(regex_matches(item, [r"2-5\d\d"]))
+
+    def test_multiple_patterns_are_or(self):
+        item = self._item()
+        self.assertTrue(regex_matches(item, ["физика", "иванов"]))
+        self.assertFalse(regex_matches(item, ["физика", r"2-5\d\d"]))
+
+    def test_validate_regex_filters(self):
+        self.assertEqual(validate_regex_filters(None), [])
+        self.assertEqual(validate_regex_filters(["\\d+", "лаб"]), [])
+        self.assertNotEqual(validate_regex_filters(["("]), [])
+
+    def test_scheduled_days_applies_regex(self):
+        target = self._item()
+        other = self._item()
+        other.subject_short_name = "ФИЗ"
+        other.subject_name = "Физика"
+        day = dt.date(2026, 9, 14)  # понедельник, неделя 2
+        result = scheduled_days(
+            [target, other],
+            [day],
+            None,
+            SEMESTER,
+            regex_filter=["предмет"],
+        )
+        self.assertEqual(result[day], [target])
 
 
 class LessonFormatTests(unittest.TestCase):

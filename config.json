@@ -4,6 +4,7 @@
   "api_url": null,
   "subgroup": null,
   "lesson_types": [],
+  "regex_filter": null,
   "view": "week",
   "date": null,
   "semester_start": null,
