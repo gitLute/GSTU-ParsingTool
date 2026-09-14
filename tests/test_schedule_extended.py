@@ -1,0 +1,584 @@
+"""Дополнительные тесты: fetcher, config, app и крайние случаи моделей/форматирования."""
+
+from __future__ import annotations
+
+import datetime as dt
+import io
+import json
+import os
+import tempfile
+import unittest
+import urllib.error
+from contextlib import redirect_stderr, redirect_stdout
+from unittest import mock
+
+from gstu_schedule.app import _date_title, _output_name, _week_title, run
+from gstu_schedule.config import Config, dump_default_config, load_config
+from gstu_schedule.engine import (
+    regex_matches,
+    scheduled_days,
+    term_start,
+    week_days,
+)
+from gstu_schedule.fetcher import USER_AGENT, build_api_url, fetch_schedule
+from gstu_schedule.formatters import (
+    _short_time,
+    build_days_data,
+    format_console,
+    format_json,
+    format_md,
+)
+from gstu_schedule.models import (
+    WEEK_ALL,
+    Entity,
+    ScheduleItem,
+    SCOPE_FULL,
+    SCOPE_STREAM,
+    SCOPE_SUBGROUPS,
+    parse_entity,
+    parse_payload,
+    parse_schedule_item,
+)
+
+
+def item_factory(
+    day: str,
+    week_type: str,
+    subgroup_numbers: list[int] | None = None,
+    scope: str = SCOPE_FULL,
+    lesson_type_short: str | None = "лаб",
+    group_name: str = "ИТИ-31",
+) -> ScheduleItem:
+    numbers = subgroup_numbers or []
+    scope = SCOPE_SUBGROUPS if numbers else scope
+
+    return ScheduleItem(
+        day_of_week=day,
+        week_type=week_type,
+        lesson_number=1,
+        start_time="08:20:00",
+        end_time="09:45:00",
+        start_date=dt.date(2026, 9, 7),
+        end_date=dt.date(2026, 12, 28),
+        is_one_time=False,
+        subject_name="Предмет",
+        subject_short_name="П",
+        lesson_type_name=None,
+        lesson_type_short=lesson_type_short,
+        subgroup_numbers=numbers,
+        scope=scope,
+        other_groups=[],
+        group_name=group_name,
+    )
+
+
+SEMESTER = dt.date(2026, 9, 7)  # понедельник недели 1
+
+
+class _FakeResponse:
+    """Минимальный ответ urllib с поддержкой контекстного менеджера."""
+
+    def __init__(self, data: bytes):
+        self._data = data
+
+    def read(self) -> bytes:
+        return self._data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class BuildApiUrlTests(unittest.TestCase):
+    def test_base_without_suffix(self):
+        self.assertEqual(
+            build_api_url("https://sc.gstu.by", "iti-31"),
+            "https://sc.gstu.by/api/schedules/group/iti-31",
+        )
+
+    def test_base_with_trailing_slash(self):
+        self.assertEqual(
+            build_api_url("https://sc.gstu.by/", "iti-31"),
+            "https://sc.gstu.by/api/schedules/group/iti-31",
+        )
+
+    def test_full_endpoint_passthrough(self):
+        self.assertEqual(
+            build_api_url("https://sc.gstu.by/api/schedules/group/", "iti-31"),
+            "https://sc.gstu.by/api/schedules/group/iti-31",
+        )
+
+
+class FetchScheduleTests(unittest.TestCase):
+    @mock.patch("urllib.request.urlopen")
+    def test_fetch_ok(self, urlopen):
+        payload = {"success": True, "data": {}}
+        urlopen.return_value = _FakeResponse(json.dumps(payload).encode("utf-8"))
+        self.assertEqual(fetch_schedule("https://sc.gstu.by/api"), payload)
+
+    @mock.patch("urllib.request.urlopen")
+    def test_fetch_sends_user_agent(self, urlopen):
+        urlopen.return_value = _FakeResponse(b"{}")
+        fetch_schedule("https://sc.gstu.by/api")
+        req = urlopen.call_args.args[0]
+        self.assertEqual(req.get_header("User-agent"), USER_AGENT)
+
+    @mock.patch("urllib.request.urlopen")
+    def test_fetch_http_error(self, urlopen):
+        from email.message import Message
+
+        headers = Message()
+        urlopen.side_effect = urllib.error.HTTPError(
+            "https://sc.gstu.by/api", 404, "Not Found", headers, io.BytesIO(b"")
+        )
+        with self.assertRaises(RuntimeError) as ctx:
+            fetch_schedule("https://sc.gstu.by/api")
+        self.assertIn("HTTP 404", str(ctx.exception))
+
+    @mock.patch("urllib.request.urlopen")
+    def test_fetch_url_error(self, urlopen):
+        urlopen.side_effect = urllib.error.URLError("connection refused")
+        with self.assertRaises(RuntimeError) as ctx:
+            fetch_schedule("https://sc.gstu.by/api")
+        self.assertIn("connection refused", str(ctx.exception))
+
+    @mock.patch("urllib.request.urlopen")
+    def test_fetch_invalid_json(self, urlopen):
+        urlopen.return_value = _FakeResponse(b"<html>not json</html>")
+        with self.assertRaises(RuntimeError):
+            fetch_schedule("https://sc.gstu.by/api")
+
+
+class ParseEntityTests(unittest.TestCase):
+    def test_short_names_and_subgroups(self):
+        raw = {
+            "slug": "iti-31",
+            "name": "ИТИ-31",
+            "course": 3,
+            "faculty": "Экономический",
+            "facultyShort": "ФЭ",
+            "cafedra": "Программная инженерия",
+            "cafedraShort": "ПИ",
+            "specialty": {"name": "ИС", "code": "6-05-0611-01"},
+            "subgroups": [{"subgroupNumber": 1}, {"subgroupNumber": 2}],
+        }
+        entity = parse_entity(raw)
+        self.assertEqual(entity.faculty_short, "ФЭ")
+        self.assertEqual(entity.cafedra_short, "ПИ")
+        self.assertEqual(entity.specialty_name, "ИС")
+        self.assertEqual(entity.specialty_code, "6-05-0611-01")
+        self.assertEqual(entity.subgroups, [1, 2])
+
+    def test_missing_fields_default(self):
+        entity = parse_entity({"slug": "x"})
+        self.assertEqual(entity.name, "")
+        self.assertEqual(entity.course, 0)
+        self.assertEqual(entity.faculty, "")
+        self.assertEqual(entity.specialty_code, "")
+        self.assertEqual(entity.subgroups, [])
+
+
+class ScopeParseTests(unittest.TestCase):
+    def _base_raw(self) -> dict:
+        return {
+            "dayOfWeek": "TUESDAY",
+            "weekType": "ALL",
+            "lessonNumber": 2,
+            "startTime": "08:20:00",
+            "endTime": "09:45:00",
+            "startDate": "2026-09-08",
+            "endDate": "2026-12-28",
+            "isOneTime": False,
+            "subject": {"name": "Предмет", "shortName": "П"},
+            "lessonType": {"name": "Лекция", "shortName": "лек"},
+            "teachers": [],
+            "classrooms": [],
+        }
+
+    def test_scope_full_when_groups_missing(self):
+        item = parse_schedule_item(self._base_raw(), "iti-31")
+        self.assertEqual(item.scope, SCOPE_FULL)
+        self.assertEqual(item.subgroup_numbers, [])
+        self.assertEqual(item.other_groups, [])
+
+    def test_scope_full_own_group_without_subgroups(self):
+        raw = self._base_raw()
+        raw["groups"] = [{"slug": "iti-31", "name": "ИТИ-31"}]
+        item = parse_schedule_item(raw, "iti-31")
+        self.assertEqual(item.scope, SCOPE_FULL)
+        self.assertEqual(item.subgroup_numbers, [])
+
+    def test_scope_stream_other_groups_only(self):
+        raw = self._base_raw()
+        raw["groups"] = [{"slug": "itp-31", "name": "ИТП-31"}]
+        item = parse_schedule_item(raw, "iti-31")
+        self.assertEqual(item.scope, SCOPE_STREAM)
+        self.assertEqual(item.other_groups, ["ИТП-31"])
+
+    def test_scope_subgroups_prefixed_with_own_group(self):
+        raw = self._base_raw()
+        raw["groups"] = [
+            {"slug": "itp-31", "name": "ИТП-31"},
+            {
+                "slug": "iti-31",
+                "name": "ИТИ-31",
+                "subgroups": [{"subgroupNumber": 2}, {"subgroupNumber": 1}],
+            },
+        ]
+        item = parse_schedule_item(raw, "iti-31")
+        self.assertEqual(item.subgroup_numbers, [1, 2])
+        self.assertEqual(item.scope, SCOPE_SUBGROUPS)
+        self.assertEqual(item.other_groups, ["ИТП-31"])
+
+    def test_optional_fields_missing(self):
+        raw = self._base_raw()
+        del raw["teachers"]
+        del raw["classrooms"]
+        del raw["lessonType"]
+        item = parse_schedule_item(raw, "iti-31")
+        self.assertEqual(item.teachers, [])
+        self.assertEqual(item.classrooms, [])
+        self.assertIsNone(item.lesson_type_short)
+
+    def test_teacher_room_fallback(self):
+        raw = self._base_raw()
+        raw["teachers"] = [{"fullName": "Иванов И.И."}]
+        raw["classrooms"] = [{"slug": "2-309"}]
+        item = parse_schedule_item(raw, "iti-31")
+        self.assertEqual(item.teachers, ["Иванов И.И."])
+        self.assertEqual(item.classrooms, ["2-309"])
+
+    def test_parse_payload_empty_items(self):
+        payload = {"success": True, "data": {"entity": {"slug": "iti-31"}}}
+        entity, items = parse_payload(payload, "iti-31")
+        self.assertEqual(entity.slug, "iti-31")
+        self.assertEqual(items, [])
+
+    def test_parse_payload_success_false(self):
+        with self.assertRaises(ValueError):
+            parse_payload({"success": False, "data": {}}, "iti-31")
+
+
+class ConfigTests(unittest.TestCase):
+    def test_missing_file_returns_defaults(self):
+        cfg = load_config("/nonexistent/path/config.json")
+        self.assertEqual(cfg.group, "iti-31")
+        self.assertEqual(cfg.view, "week")
+        self.assertIsNone(cfg.subgroup)
+
+    def test_unknown_field_raises(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write('{"bogus": 1}\n')
+            with self.assertRaises(ValueError):
+                load_config(path)
+
+    def test_non_dict_raises(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("[1, 2]\n")
+            with self.assertRaises(ValueError):
+                load_config(path)
+
+    def test_lesson_types_coerced_from_string(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write('{"lesson_types": "лаб,  лек"}\n')
+            cfg = load_config(path)
+            self.assertEqual(cfg.lesson_types, ["лаб", "лек"])
+
+    def test_lesson_types_from_list(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write('{"lesson_types": ["лаб", "лек"]}\n')
+            cfg = load_config(path)
+            self.assertEqual(cfg.lesson_types, ["лаб", "лек"])
+
+    def test_regex_filter_from_string(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write('{"regex_filter": "иванов"}\n')
+            cfg = load_config(path)
+            self.assertEqual(cfg.regex_filter, ["иванов"])
+
+    def test_effective_api_url_default(self):
+        cfg = Config()
+        self.assertEqual(
+            cfg.effective_api_url(),
+            "https://sc.gstu.by/api/schedules/group/iti-31",
+        )
+
+    def test_effective_api_url_explicit(self):
+        cfg = Config(api_url="https://example.com/full")
+        self.assertEqual(cfg.effective_api_url(), "https://example.com/full")
+
+    def test_dump_and_reload(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            dump_default_config(path)
+            cfg = load_config(path)
+            self.assertEqual(cfg.group, "iti-31")
+
+    def test_dump_does_not_overwrite_existing(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write('{"group": "custom"}\n')
+            dump_default_config(path)
+            self.assertEqual(load_config(path).group, "custom")
+
+
+class WeekDaysTests(unittest.TestCase):
+    def test_week_days_from_wednesday(self):
+        days = week_days(dt.date(2026, 9, 16))  # среда
+        self.assertEqual(days[0], dt.date(2026, 9, 14))  # понедельник
+        self.assertEqual(days[6], dt.date(2026, 9, 20))  # воскресенье
+        self.assertEqual(len(days), 7)
+
+    def test_week_days_from_monday(self):
+        monday = dt.date(2026, 9, 14)
+        self.assertEqual(week_days(monday)[0], monday)
+        self.assertEqual(week_days(monday)[-1], monday + dt.timedelta(days=6))
+
+    def test_term_start_empty_defaults_to_today_monday(self):
+        today = dt.date.today()
+        monday = today - dt.timedelta(days=today.weekday())
+        self.assertEqual(term_start([]), monday)
+
+    def test_term_start_rounds_up_to_monday(self):
+        item = item_factory("MONDAY", WEEK_ALL)
+        item.start_date = dt.date(2026, 9, 9)  # среда
+        self.assertEqual(term_start([item]), dt.date(2026, 9, 7))
+
+    def test_scheduled_days_sunday(self):
+        item = item_factory("SUNDAY", WEEK_ALL)
+        day = dt.date(2026, 9, 13)  # воскресенье, неделя 2
+        result = scheduled_days([item], [day], None, SEMESTER)
+        self.assertEqual(result[day], [item])
+
+    def test_scheduled_days_combined_filters(self):
+        target = item_factory("MONDAY", WEEK_ALL, subgroup_numbers=[1])
+        target.subject_name = "Проектирование ПО"
+        wrong_subgroup = item_factory("MONDAY", WEEK_ALL, subgroup_numbers=[2])
+        wrong_type = item_factory("MONDAY", WEEK_ALL, lesson_type_short="лек")
+        wrong_regex = item_factory("MONDAY", WEEK_ALL, subgroup_numbers=[1])
+        wrong_regex.subject_name = "Дискретная математика"
+        day = dt.date(2026, 9, 14)  # понедельник, неделя 2
+        result = scheduled_days(
+            [target, wrong_subgroup, wrong_type, wrong_regex],
+            [day],
+            1,
+            SEMESTER,
+            lesson_types=["лаб"],
+            regex_filter=["проект"],
+        )
+        self.assertEqual(result[day], [target])
+
+    def test_regex_matches_stream_group_names(self):
+        item = item_factory("MONDAY", WEEK_ALL, scope=SCOPE_STREAM)
+        item.other_groups = ["ИТП-31"]
+        self.assertTrue(regex_matches(item, ["итп"]))
+        self.assertFalse(regex_matches(item, ["мнс-21"]))
+
+
+class FormatterTests(unittest.TestCase):
+    def setUp(self):
+        self.entity = Entity(
+            slug="iti-31",
+            name="ИТИ-31",
+            course=3,
+            faculty="",
+            faculty_short="",
+            cafedra="",
+            cafedra_short="",
+            specialty_name="",
+            specialty_code="",
+            subgroups=[1, 2],
+        )
+        self.day = dt.date(2026, 9, 14)
+        self.lesson = item_factory("MONDAY", WEEK_ALL, subgroup_numbers=[1])
+        self.lesson.teachers = ["Иванов И.И."]
+        self.lesson.classrooms = ["2-309"]
+        self.scheduled = {self.day: [self.lesson]}
+        self.dates = [self.day]
+
+    def test_short_time(self):
+        self.assertEqual(_short_time("08:20:00"), "08:20")
+        self.assertEqual(_short_time("09:45"), "09:45")
+        self.assertEqual(_short_time(""), "")
+
+    def test_format_console(self):
+        text = format_console(self.entity, self.dates, self.scheduled, None, [], "Тест")
+        self.assertIn("Расписание группы ИТИ-31", text)
+        self.assertIn("ПОНЕДЕЛЬНИК", text)
+        self.assertIn("Предмет", text)
+        self.assertIn("Иванов И.И.", text)
+
+    def test_format_console_with_template(self):
+        text = format_console(
+            self.entity,
+            self.dates,
+            self.scheduled,
+            1,
+            [],
+            "Тест",
+            "{time} {subject} {groups}",
+        )
+        self.assertIn("08:20–09:45 П ИТИ-31, подгр. 1", text)
+
+    def test_format_md_table(self):
+        md = format_md(self.entity, self.dates, self.scheduled, None, [], "Тест")
+        self.assertIn("## Понедельник", md)
+        self.assertIn("| 1 |", md)
+        self.assertIn("Предмет", md)
+
+    def test_format_md_with_template(self):
+        md = format_md(
+            self.entity,
+            self.dates,
+            self.scheduled,
+            None,
+            [],
+            "Тест",
+            "{subject} [{type}]",
+        )
+        self.assertNotIn("| № |", md)
+        self.assertIn("П [лаб]", md)
+
+    def test_format_md_empty_day(self):
+        md = format_md(self.entity, self.dates, {self.day: []}, None, [], "Тест")
+        self.assertIn("_Занятий нет_", md)
+
+    def test_format_json_structure(self):
+        js = format_json(self.entity, self.dates, self.scheduled, None, [], "Тест")
+        data = json.loads(js)
+        self.assertEqual(data["group"]["name"], "ИТИ-31")
+        self.assertEqual(data["group"]["subgroups"], [1, 2])
+        self.assertEqual(len(data["days"]), 1)
+        lesson = data["days"][0]["lessons"][0]
+        self.assertEqual(lesson["subject"], "П")
+        self.assertEqual(lesson["subgroupNumbers"], [1])
+        self.assertEqual(lesson["scope"], SCOPE_SUBGROUPS)
+
+    def test_build_days_data_adds_formatted(self):
+        data = build_days_data(self.entity, self.dates, self.scheduled, "{subject}")
+        lesson = data[0]["lessons"][0]
+        self.assertEqual(lesson["formatted"], "П")
+        self.assertEqual(data[0]["dayName"], "Понедельник")
+
+
+class AppHelperTests(unittest.TestCase):
+    def test_output_name_default(self):
+        cfg = Config(group="iti-31")
+        self.assertEqual(
+            _output_name(cfg, "week", dt.date(2026, 9, 21)),
+            "iti-31_week_2026-09-21",
+        )
+
+    def test_output_name_with_subgroup(self):
+        cfg = Config(group="iti-31", subgroup=1)
+        self.assertEqual(
+            _output_name(cfg, "date", dt.date(2026, 9, 16)),
+            "iti-31_sub1_date_2026-09-16",
+        )
+
+    def test_output_name_custom_file(self):
+        cfg = Config(group="iti-31", output_file="myname")
+        self.assertEqual(_output_name(cfg, "week", dt.date(2026, 9, 21)), "myname")
+
+    def test_week_title(self):
+        title = _week_title(dt.date(2026, 9, 21), SEMESTER)
+        self.assertIn("нед. 3", title)
+        self.assertIn("нечётная", title)
+        self.assertIn("2026-09-21", title)
+
+    def test_date_title(self):
+        title = _date_title(dt.date(2026, 9, 16), SEMESTER)
+        self.assertIn("нед. 2", title)
+        self.assertIn("чётная", title)
+
+
+class AppRunTests(unittest.TestCase):
+    def _run(self, cfg: Config) -> int:
+        """Запускает приложение, подавляя его служебный вывод в stdout/stderr."""
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            return run(cfg)
+
+    def _payload(self) -> dict:
+        return {
+            "success": True,
+            "data": {
+                "entity": {"slug": "iti-31", "name": "ИТИ-31", "course": 3},
+                "scheduleItems": [
+                    {
+                        "dayOfWeek": "MONDAY",
+                        "weekType": "ALL",
+                        "lessonNumber": 1,
+                        "startTime": "08:20:00",
+                        "endTime": "09:45:00",
+                        "startDate": "2026-09-07",
+                        "endDate": "2026-12-28",
+                        "isOneTime": False,
+                        "subject": {"name": "Предмет", "shortName": "П"},
+                        "lessonType": {"name": "Лекция", "shortName": "лек"},
+                        "teachers": [],
+                        "classrooms": [],
+                    }
+                ],
+                "metadata": {"totalCount": 1},
+            },
+        }
+
+    def test_run_success_json(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = Config(
+                group="iti-31",
+                view="date",
+                date="2026-09-07",
+                output_format="json",
+                output_dir=d,
+            )
+            with mock.patch(
+                "gstu_schedule.app.fetch_schedule", return_value=self._payload()
+            ):
+                code = self._run(cfg)
+            self.assertEqual(code, 0)
+            out = os.path.join(d, "iti-31_date_2026-09-07.json")
+            self.assertTrue(os.path.isfile(out))
+            with open(out, encoding="utf-8") as fh:
+                data = json.load(fh)
+            self.assertEqual(data["group"]["name"], "ИТИ-31")
+            self.assertEqual(len(data["days"][0]["lessons"]), 1)
+
+    def test_run_fetch_error(self):
+        cfg = Config()
+        with mock.patch(
+            "gstu_schedule.app.fetch_schedule",
+            side_effect=RuntimeError("не удалось соединиться"),
+        ):
+            self.assertEqual(self._run(cfg), 1)
+
+    def test_run_unknown_template(self):
+        cfg = Config(lesson_format="{unknown}")
+        with mock.patch(
+            "gstu_schedule.app.fetch_schedule", return_value=self._payload()
+        ):
+            self.assertEqual(self._run(cfg), 1)
+
+    def test_run_bad_regex(self):
+        cfg = Config(regex_filter=["("])
+        with mock.patch(
+            "gstu_schedule.app.fetch_schedule", return_value=self._payload()
+        ):
+            self.assertEqual(self._run(cfg), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()
