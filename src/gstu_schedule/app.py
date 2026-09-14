@@ -22,7 +22,12 @@ def _ref_date(cfg: Config) -> dt.date:
 def _output_name(cfg: Config, view_tag: str, date: dt.date) -> str:
     if cfg.output_file:
         return cfg.output_file
-    return f"{cfg.group}_{view_tag}_{date.isoformat()}"
+    parts = [cfg.group]
+    if cfg.subgroup is not None:
+        parts.append(f"sub{cfg.subgroup}")
+    parts.append(view_tag)
+    parts.append(date.isoformat())
+    return "_".join(parts)
 
 
 def _ensure_dir(path: str) -> None:

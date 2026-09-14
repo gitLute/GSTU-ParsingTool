@@ -139,7 +139,9 @@ PYTHONPATH=src python3 -m gstu_schedule --lesson-type none
 PYTHONPATH=src python3 -m gstu_schedule --group itp-31
 ```
 
-Результат сохраняется в `out/{group}_{view}_{date}.md` / `.json`
+Результат сохраняется в `out/{group}[_{view}][_{date}].md` / `.json`.
+Если выбрана подгруппа, она попадает в имя файла:
+`out/{group}_sub{subgroup}_{view}_{date}.md`
 (имя изменится при `--output-file`).
 
 ### Формат одного пункта расписания
