@@ -46,8 +46,6 @@ GSTU-ParsingTool/
 │       ├── formatters.py          # вывод: консоль, Markdown, JSON
 │       └── app.py                 # оркестрация
 ├── config.json                    # конфигурация по умолчанию
-├── out/                           # скомпилированные/сформированные файлы (.md, .json)
-├── tmp/                           # временные файлы
 └── README.md
 ```
 
@@ -81,7 +79,7 @@ python3 src/main.py
 | `--date YYYY-MM-DD` | опорная дата (по умолчанию сегодня) |
 | `--format console\|md\|json\|all` | формат вывода |
 | `--lesson-format ШАБЛОН` | свой шаблон строки одного занятия (плейсхолдеры ниже) |
-| `--output-dir PATH` | каталог для файлов (по умолчанию `out/`) |
+| `--output-dir PATH` | каталог для файлов вывода (по умолчанию `out/`) |
 | `--output-file NAME` | имя файла вывода без расширения |
 | `--write-default-config` | создать шаблон `config.json` и завершиться |
 
@@ -155,13 +153,19 @@ PYTHONPATH=src python3 -m gstu_schedule \
 # Расписание на сегодняшний день (обе подгруппы) в консоль
 PYTHONPATH=src python3 -m gstu_schedule --view date
 
+# Вся неделя, содержащая сегодняшнюю дату
+PYTHONPATH=src python3 -m gstu_schedule --view week
+
 # День по дате, только 1-я подгруппа
 PYTHONPATH=src python3 -m gstu_schedule --view date --date 2026-09-16 --subgroup 1
 
-# Неделя с 21.09.2026 (нечётная), сохранить .md и .json в out/
+# Неделя с 21.09.2026 (нечётная), сохранить .md и .json
 PYTHONPATH=src python3 -m gstu_schedule --date 2026-09-21 --format all
 
-# Только подгруппа 2, формат markdown, в произвольный файл
+# Только 2-я подгруппа, только markdown
+PYTHONPATH=src python3 -m gstu_schedule --subgroup 2 --format md
+
+# То же, но в файл с произвольным именем
 PYTHONPATH=src python3 -m gstu_schedule --subgroup 2 --format md --output-file my_schedule
 
 # Только лекции и лабораторные (неделя по умолчанию)
@@ -170,14 +174,28 @@ PYTHONPATH=src python3 -m gstu_schedule --lesson-type лек --lesson-type ла�
 # Только занятия без типа (физкультура, кураторский час)
 PYTHONPATH=src python3 -m gstu_schedule --lesson-type none
 
+# Комбинация фильтров: 1-я подгруппа, только практические, свой формат пары
+PYTHONPATH=src python3 -m gstu_schedule --subgroup 1 --lesson-type пр \
+  --lesson-format "{time} | {subject_full} | {groups} | {teachers}"
+
+# Сохранить JSON в другой каталог
+PYTHONPATH=src python3 -m gstu_schedule --format json --output-dir ./result
+
 # Другая группа
 PYTHONPATH=src python3 -m gstu_schedule --group itp-31
+
+# Свой URL API (например, групповой эндпоинт сервера)
+PYTHONPATH=src python3 -m gstu_schedule \
+  --api-url "https://sc.gstu.by/api/schedules/group/iti-31"
+
+# Создать шаблон конфига и продолжить работу через config.json
+PYTHONPATH=src python3 -m gstu_schedule --write-default-config
 ```
 
-Результат сохраняется в `out/{group}[_{view}][_{date}].md` / `.json`.
-Если выбрана подгруппа, она попадает в имя файла:
-`out/{group}_sub{subgroup}_{view}_{date}.md`
-(имя изменится при `--output-file`).
+Результат сохраняется в файлы `{group}_sub{subgroup}_{view}_{date}.md` и `.json`
+в каталоге `out/` (задаётся через `--output-dir`). Если выбрана подгруппа,
+она попадает в имя файла: `iti-31_sub1_week_2026-09-21.md`.
+При `--output-file NAME` имя файла фиксируется.
 
 ### Формат одного пункта расписания
 
