@@ -13,7 +13,12 @@ from gstu_schedule.engine import (
     term_start,
     week_number,
 )
-from gstu_schedule.formatters import _subgroup_label
+from gstu_schedule.formatters import (
+    _subgroup_label,
+    lesson_vars,
+    render_lesson,
+    validate_lesson_template,
+)
 from gstu_schedule.models import (
     WEEK_ALL,
     WEEK_EVEN,
@@ -206,6 +211,34 @@ class LabelTests(unittest.TestCase):
         item = item_factory("MONDAY", WEEK_ALL, group_name="", scope=SCOPE_STREAM)
         item.other_groups = ["ИТП-31"]
         self.assertEqual(_subgroup_label(item), "поток: ИТП-31")
+
+
+class LessonFormatTests(unittest.TestCase):
+    def test_lesson_vars_fields(self):
+        item = item_factory("MONDAY", WEEK_ALL, lesson_type_short="лаб")
+        item.teachers = ["Иванов И.И."]
+        item.classrooms = ["2-305"]
+        vars_map = lesson_vars(item)
+        self.assertEqual(vars_map["time"], "08:20–09:45")
+        self.assertEqual(vars_map["subject"], "П")
+        self.assertEqual(vars_map["subject_full"], "Предмет")
+        self.assertEqual(vars_map["type"], "лаб")
+        self.assertEqual(vars_map["groups"], "ИТИ-31")
+        self.assertEqual(vars_map["teachers"], "Иванов И.И.")
+        self.assertEqual(vars_map["rooms"], "2-305")
+
+    def test_render_lesson(self):
+        item = item_factory("MONDAY", WEEK_ALL, lesson_type_short="лек")
+        template = "{start}-{end} {subject} [{type}] {groups}"
+        self.assertEqual(render_lesson(item, template), "08:20-09:45 П [лек] ИТИ-31")
+
+    def test_validate_template(self):
+        self.assertEqual(validate_lesson_template("{time} {subject}"), [])
+        self.assertEqual(
+            validate_lesson_template("{time} {wat}"),
+            ["wat"],
+        )
+        self.assertEqual(validate_lesson_template(""), [])
 
 
 class TermStartTests(unittest.TestCase):

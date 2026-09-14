@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from string import Formatter
 from typing import Any, Optional
 
 from .engine import Entity, ScheduleItem
@@ -56,8 +57,63 @@ def _subgroup_label(item: ScheduleItem) -> str:
     return name
 
 
-def _lesson_dict(item: ScheduleItem, day: dt.date) -> dict[str, Any]:
+LESSON_PLACEHOLDERS = (
+    "number",  # номер пары
+    "start",  # начало
+    "end",  # конец
+    "time",  # "начало–конец"
+    "subject",  # короткое название предмета
+    "subject_full",  # полное название предмета
+    "type",  # короткое имя типа (лаб/лек/пр/—)
+    "type_full",  # полное имя типа
+    "groups",  # задействованные группы/подгруппы
+    "teachers",  # преподаватели
+    "rooms",  # аудитории
+    "week",  # тип недели (ALL/ODD/EVEN)
+)
+
+
+def lesson_vars(item: ScheduleItem) -> dict[str, str]:
+    """Словарь значений для шаблона ``lesson_format``."""
+    start = _short_time(item.start_time)
+    end = _short_time(item.end_time)
     return {
+        "number": str(item.lesson_number),
+        "start": start,
+        "end": end,
+        "time": f"{start}–{end}",
+        "subject": item.subject_short_name or item.subject_name,
+        "subject_full": item.subject_name,
+        "type": item.lesson_type_short or "—",
+        "type_full": item.lesson_type_name or "—",
+        "groups": _subgroup_label(item),
+        "teachers": ", ".join(item.teachers) or "—",
+        "rooms": ", ".join(item.classrooms) or "—",
+        "week": item.week_type,
+    }
+
+
+def render_lesson(item: ScheduleItem, template: str) -> str:
+    """Рендерит занятие по пользовательскому шаблону."""
+    return template.format(**lesson_vars(item))
+
+
+def validate_lesson_template(template: Optional[str]) -> list[str]:
+    """Возвращает список неизвестных плейсхолдеров в шаблоне (пусто — ок)."""
+    if not template:
+        return []
+    known = set(LESSON_PLACEHOLDERS)
+    unknown: set[str] = set()
+    for _, field_name, _, _ in Formatter().parse(template):
+        if field_name and field_name not in known and not field_name.isdigit():
+            unknown.add(field_name)
+    return sorted(unknown)
+
+
+def _lesson_dict(
+    item: ScheduleItem, day: dt.date, template: Optional[str] = None
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
         "lessonNumber": item.lesson_number,
         "startTime": _short_time(item.start_time),
         "endTime": _short_time(item.end_time),
@@ -72,16 +128,20 @@ def _lesson_dict(item: ScheduleItem, day: dt.date) -> dict[str, Any]:
         "classrooms": list(item.classrooms),
         "weekType": item.week_type,
     }
+    if template:
+        data["formatted"] = render_lesson(item, template)
+    return data
 
 
 def build_days_data(
     entity: Entity,
     dates: list[dt.date],
     scheduled: dict[dt.date, list[ScheduleItem]],
+    template: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     days: list[dict[str, Any]] = []
     for day in dates:
-        lessons = [_lesson_dict(it, day) for it in scheduled.get(day, [])]
+        lessons = [_lesson_dict(it, day, template) for it in scheduled.get(day, [])]
         days.append(
             {
                 "date": day.isoformat(),
@@ -104,7 +164,9 @@ def _day_key(day: dt.date) -> str:
 # --------------------------------------------------------------------------- консоль
 
 
-def _console_day_block(day: dt.date, lessons: list[ScheduleItem]) -> str:
+def _console_day_block(
+    day: dt.date, lessons: list[ScheduleItem], template: Optional[str] = None
+) -> str:
     lines: list[str] = []
     lines.append("─" * 72)
     lines.append(f" {DAYS_RU[_day_key(day)]}, {_date_ru(day)}".upper())
@@ -113,20 +175,23 @@ def _console_day_block(day: dt.date, lessons: list[ScheduleItem]) -> str:
         lines.append(" Занятий нет")
         return "\n".join(lines)
     for it in lessons:
-        type_tag = f"[{it.lesson_type_short}]" if it.lesson_type_short else "[—]"
-        subject = it.subject_name
-        head = (
-            f" {it.lesson_number}. {_short_time(it.start_time)} – {_short_time(it.end_time)}  "
-            f"{type_tag}  {subject}"
-        )
-        lines.append(head)
-        groups = _subgroup_label(it)
-        props = f"   Группы: {groups}"
-        if it.teachers:
-            props += f"   Преп.: {', '.join(it.teachers)}"
-        if it.classrooms:
-            props += f"   Ауд.: {', '.join(it.classrooms)}"
-        lines.append(props)
+        if template:
+            lines.append(render_lesson(it, template))
+        else:
+            type_tag = f"[{it.lesson_type_short}]" if it.lesson_type_short else "[—]"
+            subject = it.subject_name
+            head = (
+                f" {it.lesson_number}. {_short_time(it.start_time)} – {_short_time(it.end_time)}  "
+                f"{type_tag}  {subject}"
+            )
+            lines.append(head)
+            groups = _subgroup_label(it)
+            props = f"   Группы: {groups}"
+            if it.teachers:
+                props += f"   Преп.: {', '.join(it.teachers)}"
+            if it.classrooms:
+                props += f"   Ауд.: {', '.join(it.classrooms)}"
+            lines.append(props)
         lines.append("")
     return "\n".join(lines)
 
@@ -138,6 +203,7 @@ def format_console(
     subgroup_number: Optional[int],
     lesson_types: Optional[list[str]],
     title: str,
+    lesson_format: Optional[str] = None,
 ) -> str:
     lines: list[str] = []
     header = f"Расписание группы {entity.name}"
@@ -151,7 +217,7 @@ def format_console(
     lines.append(f"{'=' * 72}")
     lines.append("")
     for day in dates:
-        lines.append(_console_day_block(day, scheduled.get(day, [])))
+        lines.append(_console_day_block(day, scheduled.get(day, []), lesson_format))
         lines.append("")
     return "\n".join(lines)
 
@@ -159,13 +225,20 @@ def format_console(
 # ----------------------------------------------------------------------------- md
 
 
-def _md_day_section(day: dt.date, lessons: list[ScheduleItem]) -> str:
+def _md_day_section(
+    day: dt.date, lessons: list[ScheduleItem], template: Optional[str] = None
+) -> str:
     lines: list[str] = []
     lines.append(f"## {DAYS_RU[_day_key(day)]}, {day.isoformat()}")
     lines.append("")
     if not lessons:
         lines.append("_Занятий нет_")
         lines.append("")
+        return "\n".join(lines)
+    if template:
+        for it in lessons:
+            lines.append(render_lesson(it, template))
+            lines.append("")
         return "\n".join(lines)
     lines.append(
         "| № | Время | Предмет | Тип | Подгруппы | Преподаватель | Аудитория |"
@@ -192,6 +265,7 @@ def format_md(
     subgroup_number: Optional[int],
     lesson_types: Optional[list[str]],
     title: str,
+    lesson_format: Optional[str] = None,
 ) -> str:
     lines: list[str] = []
     lines.append(f"# Расписание группы {entity.name}")
@@ -203,7 +277,7 @@ def format_md(
         lines.append(f"Тип занятия: **{', '.join(lesson_types)}**")
     lines.append("")
     for day in dates:
-        lines.append(_md_day_section(day, scheduled.get(day, [])))
+        lines.append(_md_day_section(day, scheduled.get(day, []), lesson_format))
     return "\n".join(lines)
 
 
@@ -217,6 +291,7 @@ def format_json(
     subgroup_number: Optional[int],
     lesson_types: Optional[list[str]],
     title: str,
+    lesson_format: Optional[str] = None,
 ) -> str:
     data: dict[str, Any] = {
         "group": {
@@ -234,7 +309,8 @@ def format_json(
             "title": title,
             "subgroup": subgroup_number,
             "lessonTypes": list(lesson_types or []),
+            "lessonFormat": lesson_format,
         },
-        "days": build_days_data(entity, dates, scheduled),
+        "days": build_days_data(entity, dates, scheduled, lesson_format),
     }
     return json.dumps(data, ensure_ascii=False, indent=2)

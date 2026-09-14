@@ -57,6 +57,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("console", "md", "json", "all"),
         help="формат вывода",
     )
+    parser.add_argument(
+        "--lesson-format",
+        dest="lesson_format",
+        help="шаблон строки одного занятия; плейсхолдеры: "
+        "{number}, {start}, {end}, {time}, {subject}, {subject_full}, {type}, "
+        "{type_full}, {groups}, {teachers}, {rooms}, {week}",
+    )
     parser.add_argument("--output-dir", help="каталог для файлов вывода")
     parser.add_argument("--output-file", help="имя файла вывода без расширения")
     parser.add_argument(
@@ -82,6 +89,8 @@ def apply_args(cfg: Config, args: argparse.Namespace) -> Config:
         cfg.date = args.date
     if args.output_format is not None:
         cfg.output_format = args.output_format
+    if args.lesson_format is not None:
+        cfg.lesson_format = args.lesson_format
     if args.output_dir is not None:
         cfg.output_dir = args.output_dir
     if args.output_file is not None:

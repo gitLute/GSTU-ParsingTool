@@ -9,7 +9,7 @@ import sys
 from .config import Config
 from .engine import scheduled_days, term_start, week_days, week_number
 from .fetcher import fetch_schedule
-from .formatters import DAYS_RU, DAY_ORDER, format_console, format_json, format_md
+from .formatters import format_console, format_json, format_md, validate_lesson_template
 from .models import Entity, ScheduleItem, parse_payload
 
 
@@ -74,6 +74,15 @@ def run(cfg: Config) -> int:
         else term_start(items)
     )
 
+    unknown_placeholders = validate_lesson_template(cfg.lesson_format)
+    if unknown_placeholders:
+        print(
+            "ОШИБКА: неизвестные плейсхолдеры в lesson_format: "
+            + ", ".join(unknown_placeholders),
+            file=sys.stderr,
+        )
+        return 1
+
     if cfg.view == "week":
         dates = week_days(ref)
         title = _week_title(ref, t_start)
@@ -90,7 +99,13 @@ def run(cfg: Config) -> int:
     for fmt in formats:
         if fmt == "console":
             text = format_console(
-                entity, dates, scheduled, cfg.subgroup, cfg.lesson_types, title
+                entity,
+                dates,
+                scheduled,
+                cfg.subgroup,
+                cfg.lesson_types,
+                title,
+                cfg.lesson_format,
             )
             print(text)
         else:
@@ -99,12 +114,24 @@ def run(cfg: Config) -> int:
             if fmt == "md":
                 ext = "md"
                 content = format_md(
-                    entity, dates, scheduled, cfg.subgroup, cfg.lesson_types, title
+                    entity,
+                    dates,
+                    scheduled,
+                    cfg.subgroup,
+                    cfg.lesson_types,
+                    title,
+                    cfg.lesson_format,
                 )
             elif fmt == "json":
                 ext = "json"
                 content = format_json(
-                    entity, dates, scheduled, cfg.subgroup, cfg.lesson_types, title
+                    entity,
+                    dates,
+                    scheduled,
+                    cfg.subgroup,
+                    cfg.lesson_types,
+                    title,
+                    cfg.lesson_format,
                 )
             else:
                 continue

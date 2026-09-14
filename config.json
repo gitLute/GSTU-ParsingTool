@@ -8,6 +8,7 @@
   "date": null,
   "semester_start": null,
   "output_format": "console",
+  "lesson_format": null,
   "output_dir": "out",
   "output_file": null
 }

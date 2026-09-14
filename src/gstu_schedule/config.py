@@ -35,6 +35,9 @@ class Config:
     semester_start: Optional[str] = None
     # Формат вывода: console | md | json | all.
     output_format: str = "console"
+    # Шаблон строки одного занятия (см. lesson_format в README).
+    # null — встроенные форматы по умолчанию.
+    lesson_format: Optional[str] = None
     # Каталог для файлов при output_format md/json/all.
     output_dir: str = "out"
     # Имя файла вывода (без расширения); по умолчанию генерируется.
@@ -92,6 +95,7 @@ def dump_default_config(path: str = DEFAULT_CONFIG_PATH) -> None:
         "date": cfg.date,
         "semester_start": cfg.semester_start,
         "output_format": cfg.output_format,
+        "lesson_format": cfg.lesson_format,
         "output_dir": cfg.output_dir,
         "output_file": cfg.output_file,
     }
