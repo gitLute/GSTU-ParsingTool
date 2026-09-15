@@ -51,9 +51,16 @@ def _subgroup_label(item: ScheduleItem) -> str:
             label += " + " + ", ".join(item.other_groups)
         return label
     if item.other_groups:
-        members = [item.group_name] if item.group_name else []
+        members = (
+            [item.group_name]
+            if item.group_name and item.group_name not in item.other_groups
+            else []
+        )
         members += item.other_groups
-        return "поток: " + ", ".join(m for m in members if m)
+        label = ", ".join(m for m in members if m)
+        if len(members) > 1:
+            label = "поток: " + label
+        return label
     return name
 
 

@@ -213,7 +213,7 @@ class LabelTests(unittest.TestCase):
     def test_stream_without_main_group_name(self):
         item = item_factory("MONDAY", WEEK_ALL, group_name="", scope=SCOPE_STREAM)
         item.other_groups = ["ИТП-31"]
-        self.assertEqual(_subgroup_label(item), "поток: ИТП-31")
+        self.assertEqual(_subgroup_label(item), "ИТП-31")
 
 
 class RegexTests(unittest.TestCase):

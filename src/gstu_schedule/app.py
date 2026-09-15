@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import os
 import sys
+from urllib.parse import urlparse
 
 from .config import Config
 from .engine import (
@@ -25,10 +26,20 @@ def _ref_date(cfg: Config) -> dt.date:
     return dt.date.today()
 
 
+def _slug_from_url(url: str) -> str:
+    """Извлекает последний сегмент пути из URL API (slug группы/преподавателя)."""
+    path = urlparse(url).path.rstrip("/")
+    return path.rsplit("/", 1)[-1] if path else ""
+
+
 def _output_name(cfg: Config, view_tag: str, date: dt.date) -> str:
     if cfg.output_file:
         return cfg.output_file
-    parts = [cfg.group]
+    if cfg.api_url and not cfg._explicit_group:
+        slug = _slug_from_url(cfg.api_url)
+    else:
+        slug = cfg.group
+    parts = [slug]
     if cfg.subgroup is not None:
         parts.append(f"sub{cfg.subgroup}")
     parts.append(view_tag)

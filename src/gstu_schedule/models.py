@@ -195,11 +195,28 @@ def _resolve_scope(
     return [], SCOPE_FULL, others
 
 
+def _fallback_group_name(item_raw: dict[str, Any], group_name: str) -> str:
+    """Возвращает имя группы для отображения.
+
+    Если ``group_name`` пуст, берёт имя из первого элемента ``groups``
+    в сырых данных (актуально для расписаний преподавателей, где
+    ``entity.name`` может быть ``None``).
+    """
+    if group_name:
+        return group_name
+    for g in item_raw.get("groups") or []:
+        name = g.get("name") or g.get("slug", "")
+        if name:
+            return name
+    return ""
+
+
 def parse_schedule_item(
     item_raw: dict[str, Any], group_slug: str, group_name: str = ""
 ) -> ScheduleItem:
     lesson_type = item_raw.get("lessonType")
     subgroup_numbers, scope, other_groups = _resolve_scope(item_raw, group_slug)
+    resolved_name = _fallback_group_name(item_raw, group_name)
     return ScheduleItem(
         day_of_week=item_raw.get("dayOfWeek", "MONDAY"),
         week_type=item_raw.get("weekType", WEEK_ALL),
@@ -218,7 +235,7 @@ def parse_schedule_item(
         subgroup_numbers=subgroup_numbers,
         scope=scope,
         other_groups=other_groups,
-        group_name=group_name,
+        group_name=resolved_name,
         raw=item_raw,
     )
 

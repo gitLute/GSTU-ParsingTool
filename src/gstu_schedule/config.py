@@ -45,6 +45,8 @@ class Config:
     output_dir: str = "out"
     # Имя файла вывода (без расширения); по умолчанию генерируется.
     output_file: Optional[str] = None
+    # Флаг: был ли явно задан параметр ``group`` через CLI.
+    _explicit_group: bool = False
 
     def effective_api_url(self) -> str:
         if self.api_url:

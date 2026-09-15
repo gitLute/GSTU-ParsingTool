@@ -86,6 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
 def apply_args(cfg: Config, args: argparse.Namespace) -> Config:
     if args.group is not None:
         cfg.group = args.group
+        cfg._explicit_group = True
     if args.api_url is not None:
         cfg.api_url = args.api_url
     if args.subgroup is not None:
