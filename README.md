@@ -2,16 +2,24 @@
 
 [![Python CI](https://github.com/gitLute/GSTU-ParsingTool/actions/workflows/python-ci.yml/badge.svg)](https://github.com/gitLute/GSTU-ParsingTool/actions/workflows/python-ci.yml)
 
-Консольная утилита для получения и форматирования расписания занятий групп
+Консольная утилита для получения и форматирования расписания занятий
 Гомельского государственного технического университета им. П. О. Сухого
 через публичное API (`https://sc.gstu.by`).
+
+Поддерживаются три типа расписания:
+
+| Тип | Эндпоинт | Пример |
+|-----|----------|--------|
+| Группа | `…/api/schedules/group/{slug}` | `group/iti-31` |
+| Преподаватель | `…/api/schedules/teacher/{slug}` | `teacher/avakyan-s` |
+| Аудитория | `…/api/schedules/classroom/{room}` | `classroom/2-306` |
 
 ## Краткое описание алгоритма
 
 1. **Загрузка.** Приложение выполняет HTTP GET к API-ссылке вида
-   `https://sc.gstu.by/api/schedules/group/{group}` (модуль `fetcher.py`).
-   Ответ — JSON: запись `data.entity` содержит описание группы и список
-   подгрупп, `data.scheduleItems` — занятия.
+   `https://sc.gstu.by/api/schedules/{type}/{slug}` (модуль `fetcher.py`).
+   Ответ — JSON: запись `data.entity` содержит описание сущности (группы,
+   преподавателя или аудитории), `data.scheduleItems` — занятия.
 2. **Разбор.** Каждое занятие превращается в датакласс `ScheduleItem`
    (`models.py`): день недели, тип недели (`ALL`/`ODD`/`EVEN`), номер пары,
    время начала/конца, период действия, предмет, тип занятия, преподаватели,
@@ -26,9 +34,13 @@
    `ODD`/`EVEN` соответствуют нечётной/чётной неделе. Для даты проверяются:
    попадание в период `startDate–endDate`, совпадение дня недели и чётности
    недели. Параллельно применяется фильтр подгруппы: выбранная подгруппа не
-   видит занятия чужих подгрупп, но видит занятия всей группы.
+   видит занятия чужих подгрупп, но видит занятия всей группы. Для расписаний
+   аудиторий и преподавателей одинаковые занятия (один предмет, преподаватель,
+   время, аудитория), пришедшие отдельными записями на каждую группу,
+   объединяются в одну пару со списком групп.
 4. **Форматирование** (`formatters.py`). Подготовленное расписание выводится
-   в консоль или сохраняется в `.md`/`.json`.
+   в консоль или сохраняется в `.md`/`.json`. В заголовке указывается, чьё это
+   расписание: группы, преподавателя или аудитории.
 5. **Управление** (`config.py`, `cli.py`). Входные данные задаются в
    `config.json` и/или параметрами командной строки (параметры имеют приоритет).
 
@@ -61,11 +73,20 @@ GSTU-ParsingTool/
 Из корня проекта:
 
 ```bash
-# весь вывод в консоль — неделя, содержащая сегодняшний день
+# весь вывод в консоль — неделя, содержащая сегодняшний день (если группа в конфиге)
 PYTHONPATH=src python3 -m gstu_schedule
 
+# расписание группы
+PYTHONPATH=src python3 -m gstu_schedule --type group --group iti-31
+
+# расписание преподавателя
+PYTHONPATH=src python3 -m gstu_schedule --type teacher --teacher avakyan-s
+
+# расписание аудитории
+PYTHONPATH=src python3 -m gstu_schedule --type classroom --classroom 2-306
+
 # то же без переменной окружения
-python3 src/main.py
+python3 src/main.py --group iti-31
 ```
 
 ### Параметры командной строки
@@ -73,8 +94,11 @@ python3 src/main.py
 | Параметр | Назначение |
 |----------|-----------|
 | `--config PATH` | путь к конфигу (по умолчанию `config.json`) |
+| `--type group\|teacher\|classroom` | тип расписания (стандартная выдача) |
 | `--group SLUG` | группа, например `iti-31` |
-| `--api-url URL` | полный URL API (перекрывает `api_base_url`+`group`) |
+| `--teacher SLUG` | преподаватель, например `avakyan-s` |
+| `--classroom ROOM` | аудитория, например `2-306` |
+| `--api-url URL` | полный URL API (перекрывает `api_base_url`+`type`) |
 | `--subgroup N` | номер подгруппы; без указания показываются обе |
 | `--lesson-type ТИП` | тип занятия: `лаб`, `лек`, `пр`, …; можно несколько раз, `none` — без типа |
 | `--regex PATTERN` | регулярное выражение для поиска по тексту занятия; можно несколько раз — подходит хотя бы одно |
@@ -86,12 +110,18 @@ python3 src/main.py
 | `--output-file NAME` | имя файла вывода без расширения |
 | `--write-default-config` | создать шаблон `config.json` и завершиться |
 
+Параметры `--group`, `--teacher` и `--classroom` неявно задают тип
+расписания, если `--type` не указан.
+
 ## Конфигурация (`config.json`)
 
 ```json
 {
+  "schedule_type": "group",
   "group": "iti-31",
-  "api_base_url": "https://sc.gstu.by/api/schedules/group/",
+  "teacher": null,
+  "classroom": null,
+  "api_base_url": "https://sc.gstu.by/api/schedules/",
   "api_url": null,
   "subgroup": null,
   "lesson_types": [],
@@ -106,6 +136,11 @@ python3 src/main.py
 }
 ```
 
+- `schedule_type`: `"group"`, `"teacher"` или `"classroom"` — какая сущность
+  показывается по умолчанию;
+- `group` / `teacher` / `classroom`: slug выбранной сущности. Для выбранного
+  `schedule_type` используется соответствующее поле: `group` → `group`,
+  `teacher` → `teacher`, `classroom` → `classroom`;
 - `subgroup`: `null` (обе), `1`, `2`, …;
 - `lesson_types`: список коротких имён типов занятий (`["лаб", "лек"]`);
   пустой список — все типы; элемент `"none"` — занятия без типа;
@@ -158,23 +193,29 @@ PYTHONPATH=src python3 -m gstu_schedule \
 ## Примеры использования
 
 ```bash
-# Расписание на сегодняшний день (обе подгруппы) в консоль
-PYTHONPATH=src python3 -m gstu_schedule --view date
+# Группа: день по дате, обе подгруппы
+PYTHONPATH=src python3 -m gstu_schedule --type group --group iti-31 --view date
 
-# Вся неделя, содержащая сегодняшнюю дату
-PYTHONPATH=src python3 -m gstu_schedule --view week
+# Группа: вся неделя по умолчанию из конфига
+PYTHONPATH=src python3 -m gstu_schedule
 
 # День по дате, только 1-я подгруппа
-PYTHONPATH=src python3 -m gstu_schedule --view date --date 2026-09-16 --subgroup 1
+PYTHONPATH=src python3 -m gstu_schedule --group iti-31 --view date --date 2026-09-16 --subgroup 1
+
+# Преподаватель через эндпоинт
+PYTHONPATH=src python3 -m gstu_schedule --teacher avakyan-s
+
+# Аудитория через эндпоинт
+PYTHONPATH=src python3 -m gstu_schedule --classroom 2-306
 
 # Неделя с 21.09.2026 (нечётная), сохранить .md и .json
-PYTHONPATH=src python3 -m gstu_schedule --date 2026-09-21 --format all
+PYTHONPATH=src python3 -m gstu_schedule --group iti-31 --date 2026-09-21 --format all
 
 # Только 2-я подгруппа, только markdown
-PYTHONPATH=src python3 -m gstu_schedule --subgroup 2 --format md
+PYTHONPATH=src python3 -m gstu_schedule --group iti-31 --subgroup 2 --format md
 
 # То же, но в файл с произвольным именем
-PYTHONPATH=src python3 -m gstu_schedule --subgroup 2 --format md --output-file my_schedule
+PYTHONPATH=src python3 -m gstu_schedule --group iti-31 --subgroup 2 --format md --output-file my_schedule
 
 # Только лекции и лабораторные (неделя по умолчанию)
 PYTHONPATH=src python3 -m gstu_schedule --lesson-type лек --lesson-type лаб
@@ -192,7 +233,7 @@ PYTHONPATH=src python3 -m gstu_schedule --regex "иванов" --regex "2-3\d\d"
 PYTHONPATH=src python3 -m gstu_schedule --lesson-type лаб --regex "\b(трех|дву)\w*"
 
 # Комбинация фильтров: 1-я подгруппа, только практические, свой формат пары
-PYTHONPATH=src python3 -m gstu_schedule --subgroup 1 --lesson-type пр \
+PYTHONPATH=src python3 -m gstu_schedule --group iti-31 --subgroup 1 --lesson-type пр \
   --lesson-format "{time} | {subject_full} | {groups} | {teachers}"
 
 # Сохранить JSON в другой каталог
@@ -201,18 +242,22 @@ PYTHONPATH=src python3 -m gstu_schedule --format json --output-dir ./result
 # Другая группа
 PYTHONPATH=src python3 -m gstu_schedule --group itp-31
 
-# Свой URL API (например, групповой эндпоинт сервера)
+# Свой URL API (тип определяется автоматически по пути)
 PYTHONPATH=src python3 -m gstu_schedule \
-  --api-url "https://sc.gstu.by/api/schedules/group/iti-31"
+  --api-url "https://sc.gstu.by/api/schedules/teacher/avakyan-s"
+
+PYTHONPATH=src python3 -m gstu_schedule \
+  --api-url "https://sc.gstu.by/api/schedules/classroom/2-306"
 
 # Создать шаблон конфига и продолжить работу через config.json
 PYTHONPATH=src python3 -m gstu_schedule --write-default-config
 ```
 
-Результат сохраняется в файлы `{group}_sub{subgroup}_{view}_{date}.md` и `.json`
-в каталоге `out/` (задаётся через `--output-dir`). Если выбрана подгруппа,
-она попадает в имя файла: `iti-31_sub1_week_2026-09-21.md`.
-При `--output-file NAME` имя файла фиксируется.
+Результат сохраняется в файлы `{slug}_sub{subgroup}_{view}_{date}.md` и
+`.json` в каталоге `out/` (задаётся через `--output-dir`), где `{slug}` —
+группа, преподаватель или аудитория. Если выбрана подгруппа, она попадает
+в имя файла: `iti-31_sub1_week_2026-09-21.md`. При `--output-file NAME` имя
+файла фиксируется.
 
 ### Формат одного пункта расписания
 
@@ -220,6 +265,8 @@ PYTHONPATH=src python3 -m gstu_schedule --write-default-config
 название предмета, задействованные подгруппы, тип занятия (лек, лаб, пр, …),
 преподавателя и аудиторию. В одно и то же время у разных подгрупп могут идти
 разные занятия — такие пары выводятся отдельными строками/строками таблицы.
+Для расписаний преподавателей и аудиторий одинаковые пары (один предмет,
+преподаватель, время и аудитория) объединяются в одну запись со списком групп.
 
 ## Тесты
 

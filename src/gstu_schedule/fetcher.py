@@ -5,20 +5,50 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import Any, Optional
+from urllib.parse import urlparse
 
 API_TIMEOUT_SECONDS = 30
 USER_AGENT = "GSTU-ParsingTool/0.1"
 
-DEFAULT_API_BASE_URL = "https://sc.gstu.by/api/schedules/group/"
+# Поддерживаемые типы расписаний: .../api/schedules/{kind}/{slug}.
+SCHEDULE_KINDS = ("group", "teacher", "classroom")
+
+DEFAULT_API_BASE_URL = "https://sc.gstu.by/api/schedules/"
 
 
-def build_api_url(base_url: str, group_slug: str) -> str:
-    """Собирает полный URL вида .../api/schedules/group/{slug}."""
+def build_api_url(base_url: str, kind: str, slug: str) -> str:
+    """Собирает полный URL вида ``.../api/schedules/{kind}/{slug}``.
+
+    ``base_url`` может быть как корнем домена, так и уже содержать
+    ``/api/schedules`` (в том числе с указанием типа, например
+    ``.../api/schedules/group/``) — лишний суффикс будет срезан.
+    """
     base = base_url.rstrip("/")
-    if not base.endswith("/api/schedules/group"):
-        base += "/api/schedules/group"
-    return f"{base}/{group_slug}"
+    for k in SCHEDULE_KINDS:
+        suffix = f"/api/schedules/{k}"
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+            break
+    if not base.endswith("/api/schedules"):
+        base += "/api/schedules"
+    if kind not in SCHEDULE_KINDS:
+        kind = SCHEDULE_KINDS[0]
+    return f"{base}/{kind}/{slug}"
+
+
+def parse_api_url(api_url: str) -> tuple[str, Optional[str]]:
+    """Разбирает URL ``.../api/schedules/{kind}/{slug}``.
+
+    Возвращает пару ``(slug, kind)``; ``kind`` — ``None``, если в пути
+    нет известного типа расписания.
+    """
+    path = urlparse(api_url).path.rstrip("/")
+    segments = path.split("/")
+    candidate = segments[-2] if len(segments) >= 2 else ""
+    kind = candidate if candidate in SCHEDULE_KINDS else None
+    slug = segments[-1] if segments else ""
+    return slug, kind
 
 
 def fetch_schedule(api_url: str, timeout: int = API_TIMEOUT_SECONDS) -> dict[str, Any]:

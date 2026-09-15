@@ -214,9 +214,11 @@ def format_console(
     title: str,
     lesson_format: Optional[str] = None,
     regex_filter: Optional[list[str]] = None,
+    schedule_label: str = "",
+    schedule_type: str = "group",
 ) -> str:
     lines: list[str] = []
-    header = f"Расписание группы {entity.name}"
+    header = schedule_label or f"Расписание группы {entity.display_name}"
     lines.append(f"{'=' * 72}")
     lines.append(f" {header}")
     lines.append(f" {title}")
@@ -279,9 +281,12 @@ def format_md(
     title: str,
     lesson_format: Optional[str] = None,
     regex_filter: Optional[list[str]] = None,
+    schedule_label: str = "",
+    schedule_type: str = "group",
 ) -> str:
     lines: list[str] = []
-    lines.append(f"# Расписание группы {entity.name}")
+    header = schedule_label or f"Расписание группы {entity.display_name}"
+    lines.append(f"# {header}")
     lines.append("")
     lines.append(f"{title}")
     if subgroup_number is not None:
@@ -308,11 +313,18 @@ def format_json(
     title: str,
     lesson_format: Optional[str] = None,
     regex_filter: Optional[list[str]] = None,
+    schedule_label: str = "",
+    schedule_type: str = "group",
 ) -> str:
     data: dict[str, Any] = {
+        "schedule": {
+            "type": schedule_type,
+            "label": schedule_label
+            or f"Расписание {schedule_type} {entity.display_name}",
+        },
         "group": {
             "slug": entity.slug,
-            "name": entity.name,
+            "name": entity.display_name,
             "course": entity.course,
             "faculty": entity.faculty,
             "facultyShort": entity.faculty_short,

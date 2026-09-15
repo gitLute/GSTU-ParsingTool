@@ -20,7 +20,12 @@ from gstu_schedule.engine import (
     term_start,
     week_days,
 )
-from gstu_schedule.fetcher import USER_AGENT, build_api_url, fetch_schedule
+from gstu_schedule.fetcher import (
+    USER_AGENT,
+    build_api_url,
+    fetch_schedule,
+    parse_api_url,
+)
 from gstu_schedule.formatters import (
     _short_time,
     build_days_data,
@@ -94,21 +99,56 @@ class _FakeResponse:
 class BuildApiUrlTests(unittest.TestCase):
     def test_base_without_suffix(self):
         self.assertEqual(
-            build_api_url("https://sc.gstu.by", "iti-31"),
+            build_api_url("https://sc.gstu.by", "group", "iti-31"),
             "https://sc.gstu.by/api/schedules/group/iti-31",
         )
 
     def test_base_with_trailing_slash(self):
         self.assertEqual(
-            build_api_url("https://sc.gstu.by/", "iti-31"),
+            build_api_url("https://sc.gstu.by/", "group", "iti-31"),
             "https://sc.gstu.by/api/schedules/group/iti-31",
         )
 
     def test_full_endpoint_passthrough(self):
         self.assertEqual(
-            build_api_url("https://sc.gstu.by/api/schedules/group/", "iti-31"),
+            build_api_url("https://sc.gstu.by/api/schedules/group/", "group", "iti-31"),
             "https://sc.gstu.by/api/schedules/group/iti-31",
         )
+
+    def test_teacher_kind(self):
+        self.assertEqual(
+            build_api_url("https://sc.gstu.by", "teacher", "avakyan-s"),
+            "https://sc.gstu.by/api/schedules/teacher/avakyan-s",
+        )
+
+    def test_classroom_kind_strips_suffix(self):
+        self.assertEqual(
+            build_api_url(
+                "https://sc.gstu.by/api/schedules/group/", "classroom", "2-306"
+            ),
+            "https://sc.gstu.by/api/schedules/classroom/2-306",
+        )
+
+    def test_unknown_kind_defaults_to_group(self):
+        self.assertEqual(
+            build_api_url("https://sc.gstu.by", "bogus", "x"),
+            "https://sc.gstu.by/api/schedules/group/x",
+        )
+
+    def test_parse_api_url_slug_and_kind(self):
+        self.assertEqual(
+            parse_api_url("https://sc.gstu.by/api/schedules/teacher/avakyan-s"),
+            ("avakyan-s", "teacher"),
+        )
+        self.assertEqual(
+            parse_api_url("https://sc.gstu.by/api/schedules/classroom/2-306"),
+            ("2-306", "classroom"),
+        )
+        self.assertEqual(
+            parse_api_url("https://sc.gstu.by/api/schedules/group/iti-31"),
+            ("iti-31", "group"),
+        )
+        self.assertEqual(parse_api_url("https://sc.gstu.by/"), ("", None))
 
 
 class FetchScheduleTests(unittest.TestCase):
@@ -319,6 +359,36 @@ class ConfigTests(unittest.TestCase):
         cfg = Config(api_url="https://example.com/full")
         self.assertEqual(cfg.effective_api_url(), "https://example.com/full")
 
+    def test_effective_api_url_teacher(self):
+        cfg = Config(schedule_type="teacher", teacher="avakyan-s")
+        self.assertEqual(
+            cfg.effective_api_url(),
+            "https://sc.gstu.by/api/schedules/teacher/avakyan-s",
+        )
+
+    def test_effective_api_url_classroom(self):
+        cfg = Config(schedule_type="classroom", classroom="2-306")
+        self.assertEqual(
+            cfg.effective_api_url(),
+            "https://sc.gstu.by/api/schedules/classroom/2-306",
+        )
+
+    def test_active_slug_by_type(self):
+        cfg = Config(schedule_type="teacher", teacher="avakyan-s", classroom="2-306")
+        self.assertEqual(cfg.active_slug(), "avakyan-s")
+        cfg.schedule_type = "classroom"
+        self.assertEqual(cfg.active_slug(), "2-306")
+        cfg.schedule_type = "group"
+        self.assertEqual(cfg.active_slug(), "iti-31")
+
+    def test_invalid_schedule_type_raises(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "config.json")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write('{"schedule_type": "bogus"}\n')
+            with self.assertRaises(ValueError):
+                load_config(path)
+
     def test_dump_and_reload(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "config.json")
@@ -433,6 +503,47 @@ class FormatterTests(unittest.TestCase):
         )
         self.assertIn("08:20–09:45 П ИТИ-31, подгр. 1", text)
 
+    def test_format_console_schedule_label(self):
+        text = format_console(
+            self.entity,
+            self.dates,
+            self.scheduled,
+            None,
+            [],
+            "Тест",
+            schedule_label="Расписание преподавателя Авакян С.Л.",
+        )
+        self.assertIn("Расписание преподавателя Авакян С.Л.", text)
+
+    def test_format_md_schedule_label(self):
+        md = format_md(
+            self.entity,
+            self.dates,
+            self.scheduled,
+            None,
+            [],
+            "Тест",
+            schedule_label="Расписание аудитории 2-306",
+        )
+        self.assertIn("# Расписание аудитории 2-306", md)
+
+    def test_format_json_schedule_block(self):
+        js = format_json(
+            self.entity,
+            self.dates,
+            self.scheduled,
+            None,
+            [],
+            "Тест",
+            schedule_label="Расписание преподавателя Авакян С.Л.",
+            schedule_type="teacher",
+        )
+        data = json.loads(js)
+        self.assertEqual(data["schedule"]["type"], "teacher")
+        self.assertEqual(
+            data["schedule"]["label"], "Расписание преподавателя Авакян С.Л."
+        )
+
     def test_format_md_table(self):
         md = format_md(self.entity, self.dates, self.scheduled, None, [], "Тест")
         self.assertIn("## Понедельник", md)
@@ -492,6 +603,39 @@ class AppHelperTests(unittest.TestCase):
     def test_output_name_custom_file(self):
         cfg = Config(group="iti-31", output_file="myname")
         self.assertEqual(_output_name(cfg, "week", dt.date(2026, 9, 21)), "myname")
+
+    def test_output_name_teacher(self):
+        cfg = Config(schedule_type="teacher", teacher="avakyan-s")
+        self.assertEqual(
+            _output_name(cfg, "week", dt.date(2026, 9, 21)),
+            "avakyan-s_week_2026-09-21",
+        )
+
+    def test_output_name_classroom(self):
+        cfg = Config(schedule_type="classroom", classroom="2-306")
+        self.assertEqual(
+            _output_name(cfg, "week", dt.date(2026, 9, 21)),
+            "2-306_week_2026-09-21",
+        )
+
+    def test_output_name_api_url_without_explicit_entity(self):
+        cfg = Config(api_url="https://sc.gstu.by/api/schedules/teacher/avakyan-s")
+        self.assertEqual(
+            _output_name(cfg, "week", dt.date(2026, 9, 15)),
+            "avakyan-s_week_2026-09-15",
+        )
+
+    def test_output_name_explicit_teacher_overrides_url(self):
+        cfg = Config(
+            api_url="https://sc.gstu.by/api/schedules/teacher/avakyan-s",
+            schedule_type="teacher",
+            teacher="other-t",
+            _explicit_entity=True,
+        )
+        self.assertEqual(
+            _output_name(cfg, "week", dt.date(2026, 9, 15)),
+            "other-t_week_2026-09-15",
+        )
 
     def test_week_title(self):
         title = _week_title(dt.date(2026, 9, 21), SEMESTER)

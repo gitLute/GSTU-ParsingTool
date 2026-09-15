@@ -7,7 +7,7 @@ import os
 from dataclasses import dataclass, field, fields
 from typing import Optional
 
-from .fetcher import DEFAULT_API_BASE_URL
+from .fetcher import DEFAULT_API_BASE_URL, SCHEDULE_KINDS, build_api_url
 
 DEFAULT_CONFIG_PATH = "config.json"
 
@@ -16,9 +16,15 @@ DEFAULT_CONFIG_PATH = "config.json"
 class Config:
     """Параметры запуска (совместимо с config.json)."""
 
+    # Тип расписания: "group" | "teacher" | "classroom".
+    schedule_type: str = "group"
     # Группа (slug), например "iti-31".
     group: str = "iti-31"
-    # Базовый URL API. Полный URL строится как {api_base_url}/{group}.
+    # Преподаватель (slug), например "avakyan-s".
+    teacher: Optional[str] = None
+    # Аудитория (номер/slug), например "2-306".
+    classroom: Optional[str] = None
+    # Базовый URL API. Полный URL строится как {api_base_url}/{schedule_type}/{slug}.
     api_base_url: str = DEFAULT_API_BASE_URL
     # Полный URL API; если задан, используется как есть.
     api_url: Optional[str] = None
@@ -45,16 +51,23 @@ class Config:
     output_dir: str = "out"
     # Имя файла вывода (без расширения); по умолчанию генерируется.
     output_file: Optional[str] = None
-    # Флаг: был ли явно задан параметр ``group`` через CLI.
-    _explicit_group: bool = False
+    # Служебные флаги: были ли явно заданы параметры через CLI.
+    _explicit_entity: bool = False
+    _explicit_type: bool = False
+
+    def active_slug(self) -> Optional[str]:
+        """Slug активной сущности (group/teacher/classroom)."""
+        if self.schedule_type == "teacher":
+            return self.teacher
+        if self.schedule_type == "classroom":
+            return self.classroom
+        return self.group
 
     def effective_api_url(self) -> str:
         if self.api_url:
             return self.api_url
-        base = self.api_base_url.rstrip("/")
-        if not base.endswith("/api/schedules/group"):
-            base += "/api/schedules/group"
-        return f"{base}/{self.group}"
+        slug = self.active_slug() or ""
+        return build_api_url(self.api_base_url, self.schedule_type, slug)
 
 
 def _coerce_lesson_types(value) -> list[str]:
@@ -92,6 +105,12 @@ def load_config(path: str = DEFAULT_CONFIG_PATH) -> Config:
             value = _coerce_lesson_types(value)
         elif key == "regex_filter":
             value = _coerce_regex_filter(value)
+        elif key == "schedule_type":
+            if value and value not in SCHEDULE_KINDS:
+                raise ValueError(
+                    f"Конфиг {path}: schedule_type должен быть одним из "
+                    f"{', '.join(SCHEDULE_KINDS)}"
+                )
         setattr(cfg, key, value)
     return cfg
 
@@ -102,7 +121,10 @@ def dump_default_config(path: str = DEFAULT_CONFIG_PATH) -> None:
         return
     cfg = Config()
     data = {
+        "schedule_type": cfg.schedule_type,
         "group": cfg.group,
+        "teacher": cfg.teacher,
+        "classroom": cfg.classroom,
         "api_base_url": cfg.api_base_url,
         "api_url": cfg.api_url,
         "subgroup": cfg.subgroup,

@@ -101,6 +101,15 @@ class Entity:
     specialty_name: str
     specialty_code: str
     subgroups: list[int] = field(default_factory=list)
+    # Короткое имя (для преподавателей — shortName).
+    short_name: str = ""
+    # Номер аудитории (для аудиторий — roomNumber).
+    room_number: str = ""
+
+    @property
+    def display_name(self) -> str:
+        """Человекочитаемое имя для заголовка расписания."""
+        return self.name or self.short_name or self.room_number or self.slug
 
 
 @dataclass
@@ -146,15 +155,17 @@ def parse_entity(entity_raw: dict[str, Any]) -> Entity:
     specialty = entity_raw.get("specialty") or {}
     return Entity(
         slug=entity_raw.get("slug", ""),
-        name=entity_raw.get("name", ""),
+        name=entity_raw.get("name", "") or "",
         course=int(entity_raw.get("course", 0) or 0),
-        faculty=entity_raw.get("faculty", ""),
-        faculty_short=entity_raw.get("facultyShort", ""),
-        cafedra=entity_raw.get("cafedra", ""),
-        cafedra_short=entity_raw.get("cafedraShort", ""),
-        specialty_name=specialty.get("name", ""),
-        specialty_code=specialty.get("code", ""),
+        faculty=entity_raw.get("faculty", "") or "",
+        faculty_short=entity_raw.get("facultyShort", "") or "",
+        cafedra=entity_raw.get("cafedra", "") or "",
+        cafedra_short=entity_raw.get("cafedraShort", "") or "",
+        specialty_name=specialty.get("name", "") or "",
+        specialty_code=specialty.get("code", "") or "",
         subgroups=_entity_subgroups(entity_raw),
+        short_name=entity_raw.get("shortName", "") or "",
+        room_number=entity_raw.get("roomNumber", "") or "",
     )
 
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 import datetime as dt
 import os
 import sys
-from urllib.parse import urlparse
 
 from .config import Config
 from .engine import (
@@ -16,9 +15,15 @@ from .engine import (
     week_days,
     week_number,
 )
-from .fetcher import fetch_schedule
+from .fetcher import fetch_schedule, parse_api_url
 from .formatters import format_console, format_json, format_md, validate_lesson_template
 from .models import Entity, ScheduleItem, parse_payload
+
+_KIND_NOUN = {
+    "group": "группы",
+    "teacher": "преподавателя",
+    "classroom": "аудитории",
+}
 
 
 def _ref_date(cfg: Config) -> dt.date:
@@ -27,20 +32,14 @@ def _ref_date(cfg: Config) -> dt.date:
     return dt.date.today()
 
 
-def _slug_from_url(url: str) -> str:
-    """Извлекает последний сегмент пути из URL API (slug группы/преподавателя)."""
-    path = urlparse(url).path.rstrip("/")
-    return path.rsplit("/", 1)[-1] if path else ""
-
-
 def _output_name(cfg: Config, view_tag: str, date: dt.date) -> str:
     if cfg.output_file:
         return cfg.output_file
-    if cfg.api_url and not cfg._explicit_group:
-        slug = _slug_from_url(cfg.api_url)
+    if cfg.api_url and not cfg._explicit_entity:
+        slug = parse_api_url(cfg.api_url)[0]
     else:
-        slug = cfg.group
-    parts = [slug]
+        slug = cfg.active_slug() or ""
+    parts = [slug or "unknown"]
     if cfg.subgroup is not None:
         parts.append(f"sub{cfg.subgroup}")
     parts.append(view_tag)
@@ -67,6 +66,20 @@ def _date_title(d: dt.date, start: dt.date) -> str:
     return f"Дата: {d.isoformat()} (нед. {wn}, {parity})"
 
 
+def _schedule_kind(cfg: Config) -> str:
+    """Тип расписания с учётом полного URL (дважды не переопределяем)."""
+    if cfg.api_url and not cfg._explicit_type:
+        _url_slug, url_kind = parse_api_url(cfg.api_url)
+        if url_kind:
+            return url_kind
+    return cfg.schedule_type
+
+
+def _schedule_label(kind: str, display_name: str) -> str:
+    noun = _KIND_NOUN.get(kind, "группы")
+    return f"Расписание {noun} {display_name}".rstrip()
+
+
 def run(cfg: Config) -> int:
     api_url = cfg.effective_api_url()
     try:
@@ -84,6 +97,9 @@ def run(cfg: Config) -> int:
     if not items:
         print("Расписание пустое.", file=sys.stderr)
         return 1
+
+    kind = _schedule_kind(cfg)
+    schedule_label = _schedule_label(kind, entity.display_name)
 
     ref = _ref_date(cfg)
     t_start = (
@@ -141,6 +157,8 @@ def run(cfg: Config) -> int:
                 title,
                 cfg.lesson_format,
                 cfg.regex_filter,
+                schedule_label,
+                kind,
             )
             print(text)
         else:
@@ -157,6 +175,8 @@ def run(cfg: Config) -> int:
                     title,
                     cfg.lesson_format,
                     cfg.regex_filter,
+                    schedule_label,
+                    kind,
                 )
             elif fmt == "json":
                 ext = "json"
@@ -169,6 +189,8 @@ def run(cfg: Config) -> int:
                     title,
                     cfg.lesson_format,
                     cfg.regex_filter,
+                    schedule_label,
+                    kind,
                 )
             else:
                 continue

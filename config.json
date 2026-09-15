@@ -1,6 +1,9 @@
 {
+  "schedule_type": "group",
   "group": "iti-31",
-  "api_base_url": "https://sc.gstu.by/api/schedules/group/",
+  "teacher": null,
+  "classroom": null,
+  "api_base_url": "https://sc.gstu.by/api/schedules/",
   "api_url": null,
   "subgroup": null,
   "lesson_types": [],

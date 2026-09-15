@@ -23,9 +23,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_CONFIG_PATH,
         help=f"путь к JSON-конфигу (по умолчанию: {DEFAULT_CONFIG_PATH})",
     )
-    parser.add_argument("--group", help="slug группы, например iti-31")
     parser.add_argument(
-        "--api-url", help="полный URL API (перекрывает api_base_url+group)"
+        "--type",
+        dest="schedule_type",
+        choices=("group", "teacher", "classroom"),
+        help="тип расписания: group — группа, teacher — преподаватель, "
+        "classroom — аудитория",
+    )
+    parser.add_argument("--group", help="slug группы, например iti-31")
+    parser.add_argument("--teacher", help="slug преподавателя, например avakyan-s")
+    parser.add_argument("--classroom", help="номер аудитории, например 2-306")
+    parser.add_argument(
+        "--api-url", help="полный URL API (перекрывает api_base_url+type)"
     )
     parser.add_argument(
         "--subgroup",
@@ -84,9 +93,24 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def apply_args(cfg: Config, args: argparse.Namespace) -> Config:
+    if args.schedule_type is not None:
+        cfg.schedule_type = args.schedule_type
+        cfg._explicit_type = True
     if args.group is not None:
         cfg.group = args.group
-        cfg._explicit_group = True
+        cfg._explicit_entity = True
+        if args.schedule_type is None:
+            cfg.schedule_type = "group"
+    if args.teacher is not None:
+        cfg.teacher = args.teacher
+        cfg._explicit_entity = True
+        if args.schedule_type is None:
+            cfg.schedule_type = "teacher"
+    if args.classroom is not None:
+        cfg.classroom = args.classroom
+        cfg._explicit_entity = True
+        if args.schedule_type is None:
+            cfg.schedule_type = "classroom"
     if args.api_url is not None:
         cfg.api_url = args.api_url
     if args.subgroup is not None:
