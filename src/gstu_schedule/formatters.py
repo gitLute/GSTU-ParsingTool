@@ -61,6 +61,8 @@ def _subgroup_label(item: ScheduleItem) -> str:
         if len(members) > 1:
             label = "поток: " + label
         return label
+    if "," in name:
+        return "поток: " + name
     return name
 
 

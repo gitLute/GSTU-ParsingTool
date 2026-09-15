@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from .config import Config
 from .engine import (
+    merge_duplicate_lessons,
     scheduled_days,
     term_start,
     validate_regex_filters,
@@ -123,6 +124,7 @@ def run(cfg: Config) -> int:
         cfg.lesson_types,
         cfg.regex_filter,
     )
+    scheduled = merge_duplicate_lessons(scheduled)
 
     formats = (
         ["console", "md", "json"] if cfg.output_format == "all" else [cfg.output_format]

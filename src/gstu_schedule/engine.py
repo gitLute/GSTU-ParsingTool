@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import copy
 import datetime as dt
 import re
 from typing import Optional
 
-from .models import DAY_ORDER, WEEK_ALL, WEEK_EVEN, WEEK_ODD, ScheduleItem, Entity
+from .models import (
+    DAY_ORDER,
+    SCOPE_FULL,
+    WEEK_ALL,
+    WEEK_EVEN,
+    WEEK_ODD,
+    ScheduleItem,
+    Entity,
+)
 
 # Сопоставление по регулярным выражениям ведётся регистронезависимо.
 REGEX_FLAGS = re.IGNORECASE
@@ -161,3 +170,53 @@ def scheduled_days(
         lessons.sort(key=lambda it: (it.lesson_number, it.start_time))
         result[day] = lessons
     return result
+
+
+def _merge_key(
+    item: ScheduleItem,
+) -> tuple[str, tuple[str, ...], str, str, str, str, tuple[str, ...]]:
+    """Ключ для группировки дублирующихся занятий."""
+    return (
+        item.subject_name,
+        tuple(sorted(item.teachers)),
+        item.lesson_type_short or "",
+        item.start_time,
+        item.end_time,
+        item.week_type,
+        tuple(sorted(item.classrooms)),
+    )
+
+
+def merge_duplicate_lessons(
+    scheduled: dict[dt.date, list[ScheduleItem]],
+) -> dict[dt.date, list[ScheduleItem]]:
+    """Объединяет дублирующиеся занятия (один предмет, преподаватель, время).
+
+    Используется для расписаний аудиторий/преподавателей, где одно занятие
+    приходит отдельным элементом для каждой группы.
+    """
+    merged: dict[dt.date, list[ScheduleItem]] = {}
+    for day, lessons in scheduled.items():
+        groups: dict[tuple, list[ScheduleItem]] = {}
+        for it in lessons:
+            key = _merge_key(it)
+            groups.setdefault(key, []).append(it)
+        day_items: list[ScheduleItem] = []
+        for key, items in groups.items():
+            if len(items) == 1:
+                day_items.append(items[0])
+                continue
+            first = copy.copy(items[0])
+            all_groups: list[str] = []
+            for it in items:
+                for name in [it.group_name] + it.other_groups:
+                    if name and name not in all_groups:
+                        all_groups.append(name)
+            first.group_name = ", ".join(all_groups)
+            first.scope = SCOPE_FULL
+            first.subgroup_numbers = []
+            first.other_groups = []
+            day_items.append(first)
+        day_items.sort(key=lambda it: (it.lesson_number, it.start_time))
+        merged[day] = day_items
+    return merged
