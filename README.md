@@ -99,6 +99,7 @@ python3 src/main.py --group iti-31
 | `--teacher SLUG` | преподаватель, например `avakyan-s` |
 | `--classroom ROOM` | аудитория, например `2-306` |
 | `--api-url URL` | полный URL API (перекрывает `api_base_url`+`type`) |
+| `--search QUERY` | поиск по autocomplete (группы, преподаватели, аудитории); вместо показа расписания выводит список найденных сущностей |
 | `--subgroup N` | номер подгруппы; без указания показываются обе |
 | `--lesson-type ТИП` | тип занятия: `лаб`, `лек`, `пр`, …; можно несколько раз, `none` — без типа |
 | `--regex PATTERN` | регулярное выражение для поиска по тексту занятия; можно несколько раз — подходит хотя бы одно |
@@ -207,6 +208,15 @@ PYTHONPATH=src python3 -m gstu_schedule --teacher avakyan-s
 
 # Аудитория через эндпоинт
 PYTHONPATH=src python3 -m gstu_schedule --classroom 2-306
+
+# Поиск преподавателя (автоподбор)
+PYTHONPATH=src python3 -m gstu_schedule --search "авакян"
+
+# Поиск аудитории по номеру
+PYTHONPATH=src python3 -m gstu_schedule --search "306"
+
+# Поиск группы (подстрока имени)
+PYTHONPATH=src python3 -m gstu_schedule --search "iti"
 
 # Неделя с 21.09.2026 (нечётная), сохранить .md и .json
 PYTHONPATH=src python3 -m gstu_schedule --group iti-31 --date 2026-09-21 --format all

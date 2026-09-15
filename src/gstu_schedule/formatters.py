@@ -8,7 +8,7 @@ from string import Formatter
 from typing import Any, Optional
 
 from .engine import Entity, ScheduleItem
-from .models import DAY_ORDER
+from .models import DAY_ORDER, AutocompleteResult
 
 DAYS_RU = {
     "MONDAY": "Понедельник",
@@ -343,3 +343,83 @@ def format_json(
         "days": build_days_data(entity, dates, scheduled, lesson_format),
     }
     return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+# ---------------------------------------------------------------------------- autocomplete
+
+
+def _autocomplete_usage_note(result: AutocompleteResult, query: str) -> list[str]:
+    """Подсказывает команду для каждой найденной сущности."""
+    lines = [""]
+    for t in result.teachers:
+        lines.append(
+            f"  --teacher {t.slug}   # {t.full_name or t.short_name or t.slug}"
+        )
+    for c in result.classrooms:
+        lines.append(f"  --classroom {c.slug}   # {c.name or c.room_number}")
+    for g in result.groups:
+        lines.append(f"  --group {g.slug}   # {g.name}")
+    if len(lines) == 1:
+        lines.append(f"  По запросу «{query}» ничего не найдено.")
+    else:
+        lines.insert(0, "Для показа расписания:")
+    return lines
+
+
+def format_autocomplete(result: AutocompleteResult, query: str) -> str:
+    """Оформляет результат автоподбора для вывода в консоль."""
+    lines: list[str] = []
+    sep = "=" * 60
+    lines.append(sep)
+    lines.append(f" Поиск: «{query}» (найдено: {result.total})")
+    lines.append(sep)
+
+    if result.teachers:
+        lines.append("")
+        lines.append("Преподаватели:")
+        for t in result.teachers:
+            extra = ", ".join(
+                p for p in (t.position, t.cafedra_short, t.faculty_short) if p
+            )
+            tail = f" — {extra}" if extra else ""
+            lines.append(f"  {t.slug:<24} {t.full_name or t.short_name}{tail}")
+    if result.classrooms:
+        lines.append("")
+        lines.append("Аудитории:")
+        for c in result.classrooms:
+            extra = ", ".join(
+                p
+                for p in (
+                    c.building,
+                    f"{c.floor} эт." if c.floor else "",
+                    c.room_type,
+                    c.cafedra_short,
+                    c.faculty_short,
+                )
+                if p
+            )
+            tail = f" — {extra}" if extra else ""
+            lines.append(f"  {c.slug:<24} {c.name or c.room_number}{tail}")
+    if result.groups:
+        lines.append("")
+        lines.append("Группы:")
+        for g in result.groups:
+            extra = ", ".join(
+                p
+                for p in (
+                    f"{g.course} курс" if g.course else "",
+                    g.specialty_name,
+                    g.cafedra_short,
+                    g.faculty_short,
+                )
+                if p
+            )
+            tail = f" — {extra}" if extra else ""
+            lines.append(f"  {g.slug:<24} {g.name}{tail}")
+
+    if result.has_more:
+        lines.append("")
+        lines.append("Есть ещё результаты — уточните запрос.")
+
+    lines.extend(_autocomplete_usage_note(result, query))
+    return "\n".join(lines)

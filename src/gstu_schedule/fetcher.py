@@ -6,7 +6,7 @@ import json
 import urllib.error
 import urllib.request
 from typing import Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 API_TIMEOUT_SECONDS = 30
 USER_AGENT = "GSTU-ParsingTool/0.1"
@@ -66,3 +66,24 @@ def fetch_schedule(api_url: str, timeout: int = API_TIMEOUT_SECONDS) -> dict[str
         raise RuntimeError(f"Не удалось соединиться с {api_url}: {exc.reason}") from exc
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"Некорректный JSON от {api_url}: {exc}") from exc
+
+
+def fetch_autocomplete(
+    query: str, base_url: str = DEFAULT_API_BASE_URL, timeout: int = API_TIMEOUT_SECONDS
+) -> dict[str, Any]:
+    """Выполняет запрос автоподбора ``/autocomplete?q=...``."""
+    base = base_url.rstrip("/")
+    url = f"{base}/autocomplete?q={quote(query)}"
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"HTTP {exc.code} при запросе {url}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Не удалось соединиться с {url}: {exc.reason}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Некорректный JSON от {url}: {exc}") from exc

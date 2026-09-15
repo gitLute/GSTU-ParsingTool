@@ -15,9 +15,15 @@ from .engine import (
     week_days,
     week_number,
 )
-from .fetcher import fetch_schedule, parse_api_url
-from .formatters import format_console, format_json, format_md, validate_lesson_template
-from .models import Entity, ScheduleItem, parse_payload
+from .fetcher import fetch_autocomplete, fetch_schedule, parse_api_url
+from .formatters import (
+    format_autocomplete,
+    format_console,
+    format_json,
+    format_md,
+    validate_lesson_template,
+)
+from .models import Entity, ScheduleItem, parse_autocomplete, parse_payload
 
 _KIND_NOUN = {
     "group": "группы",
@@ -78,6 +84,25 @@ def _schedule_kind(cfg: Config) -> str:
 def _schedule_label(kind: str, display_name: str) -> str:
     noun = _KIND_NOUN.get(kind, "группы")
     return f"Расписание {noun} {display_name}".rstrip()
+
+
+def search(query: str, cfg: Config) -> int:
+    """Автоподбор: ищет группы/преподавателей/аудитории по ``autocomplete``."""
+    query = query.strip()
+    try:
+        payload = fetch_autocomplete(query, cfg.api_base_url)
+    except RuntimeError as exc:
+        print(f"ОШИБКА: {exc}", file=sys.stderr)
+        return 1
+    if not payload.get("success", True):
+        print("ОШИБКА: API вернул success=false", file=sys.stderr)
+        return 1
+    result = parse_autocomplete(payload)
+    if not result.total:
+        print(f"По запросу «{query}» ничего не найдено.", file=sys.stderr)
+        return 1
+    print(format_autocomplete(result, query))
+    return 0
 
 
 def run(cfg: Config) -> int:

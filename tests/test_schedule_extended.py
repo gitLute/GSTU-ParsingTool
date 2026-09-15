@@ -9,6 +9,7 @@ import os
 import tempfile
 import unittest
 import urllib.error
+import urllib.parse
 from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
@@ -23,23 +24,29 @@ from gstu_schedule.engine import (
 from gstu_schedule.fetcher import (
     USER_AGENT,
     build_api_url,
+    fetch_autocomplete,
     fetch_schedule,
     parse_api_url,
 )
 from gstu_schedule.formatters import (
     _short_time,
     build_days_data,
+    format_autocomplete,
     format_console,
     format_json,
     format_md,
 )
 from gstu_schedule.models import (
     WEEK_ALL,
+    AutocompleteGroup,
+    AutocompleteTeacher,
+    AutocompleteClassroom,
     Entity,
     ScheduleItem,
     SCOPE_FULL,
     SCOPE_STREAM,
     SCOPE_SUBGROUPS,
+    parse_autocomplete,
     parse_entity,
     parse_payload,
     parse_schedule_item,
@@ -189,6 +196,204 @@ class FetchScheduleTests(unittest.TestCase):
         urlopen.return_value = _FakeResponse(b"<html>not json</html>")
         with self.assertRaises(RuntimeError):
             fetch_schedule("https://sc.gstu.by/api")
+
+
+class FetchAutocompleteTests(unittest.TestCase):
+    @mock.patch("urllib.request.urlopen")
+    def test_fetch_ok(self, urlopen):
+        payload = {"success": True, "data": {"groups": [], "teachers": []}}
+        urlopen.return_value = _FakeResponse(json.dumps(payload).encode("utf-8"))
+        self.assertEqual(
+            fetch_autocomplete("авакян", "https://sc.gstu.by/api/schedules"), payload
+        )
+
+    @mock.patch("urllib.request.urlopen")
+    def test_url_encodes_query_with_spaces(self, urlopen):
+        urlopen.return_value = _FakeResponse(b"{}")
+        fetch_autocomplete("Сергей Левонович", "https://sc.gstu.by/api/schedules")
+        url = urlopen.call_args.args[0].full_url
+        self.assertTrue(
+            url.startswith("https://sc.gstu.by/api/schedules/autocomplete?q=")
+        )
+        self.assertNotIn(" ", url)
+        self.assertIn("Сергей", urllib.parse.unquote(url))
+
+    @mock.patch("urllib.request.urlopen")
+    def test_sends_user_agent(self, urlopen):
+        urlopen.return_value = _FakeResponse(b"{}")
+        fetch_autocomplete("x", "https://sc.gstu.by/api/schedules")
+        req = urlopen.call_args.args[0]
+        self.assertEqual(req.get_header("User-agent"), USER_AGENT)
+
+    def test_url_strips_trailing_slash(self):
+        def _build(q: str, base: str) -> str:
+            return f"{base.rstrip('/')}/autocomplete?q={q}"
+
+        self.assertEqual(
+            _build("x", "https://sc.gstu.by/api/schedules/"),
+            "https://sc.gstu.by/api/schedules/autocomplete?q=x",
+        )
+
+    @mock.patch("urllib.request.urlopen")
+    def test_http_error(self, urlopen):
+        from email.message import Message
+
+        headers = Message()
+        urlopen.side_effect = urllib.error.HTTPError(
+            "https://sc.gstu.by/api", 500, "Internal", headers, io.BytesIO(b"")
+        )
+        with self.assertRaises(RuntimeError) as ctx:
+            fetch_autocomplete("q", "https://sc.gstu.by/api/schedules")
+        self.assertIn("HTTP 500", str(ctx.exception))
+
+
+class AutocompleteTests(unittest.TestCase):
+    @staticmethod
+    def _payload(groups=None, teachers=None, classrooms=None, has_more=False) -> dict:
+        return {
+            "success": True,
+            "data": {
+                "groups": groups or [],
+                "teachers": teachers or [],
+                "classrooms": classrooms or [],
+                "hasMore": has_more,
+            },
+        }
+
+    def test_parse_autocomplete_groups(self):
+        raw = self._payload(
+            groups=[
+                {
+                    "slug": "iti-31",
+                    "name": "ИТИ-31",
+                    "course": 3,
+                    "specialtyName": "ИС",
+                    "cafedraShortName": "ИТ",
+                    "facultyShortName": "ФАИС",
+                    "subgroupCount": 2,
+                }
+            ]
+        )
+        result = parse_autocomplete(raw)
+        self.assertEqual(len(result.groups), 1)
+        g = result.groups[0]
+        self.assertEqual(g.slug, "iti-31")
+        self.assertEqual(g.name, "ИТИ-31")
+        self.assertEqual(g.course, 3)
+        self.assertEqual(g.subgroup_count, 2)
+        self.assertEqual(result.total, 1)
+
+    def test_parse_autocomplete_teachers(self):
+        raw = self._payload(
+            teachers=[
+                {
+                    "slug": "avakyan-s",
+                    "fullName": "Авакян Сергей Левонович",
+                    "shortName": "Авакян С.Л.",
+                    "position": {"name": "Доцент", "shortName": "доц."},
+                    "cafedra": {"shortName": "ВМ"},
+                    "faculty": {"shortName": "ФАИС"},
+                }
+            ]
+        )
+        result = parse_autocomplete(raw)
+        self.assertEqual(len(result.teachers), 1)
+        t = result.teachers[0]
+        self.assertEqual(t.slug, "avakyan-s")
+        self.assertEqual(t.position, "доц.")
+        self.assertEqual(t.cafedra_short, "ВМ")
+
+    def test_parse_autocomplete_classrooms(self):
+        raw = self._payload(
+            classrooms=[
+                {
+                    "slug": "2-306",
+                    "name": "2-306",
+                    "roomNumber": "2-306",
+                    "building": "Второй корпус",
+                    "floor": 2,
+                    "capacity": 52,
+                    "type": "LECTURE",
+                    "cafedra": {"shortName": "ИТ"},
+                    "faculty": {"shortName": "ФАИС"},
+                }
+            ]
+        )
+        result = parse_autocomplete(raw)
+        self.assertEqual(len(result.classrooms), 1)
+        c = result.classrooms[0]
+        self.assertEqual(c.building, "Второй корпус")
+        self.assertEqual(c.floor, 2)
+        self.assertEqual(c.room_type, "LECTURE")
+        self.assertTrue(result.has_more is False)
+
+    def test_total(self):
+        result = parse_autocomplete(
+            self._payload(
+                groups=[{"slug": "a"}],
+                teachers=[{"slug": "b"}, {"slug": "c"}],
+                classrooms=[{"slug": "d"}],
+            )
+        )
+        self.assertEqual(result.total, 4)
+
+    def test_has_more(self):
+        result = parse_autocomplete(self._payload(has_more=True))
+        self.assertTrue(result.has_more)
+
+    def test_format_autocomplete_teachers(self):
+        result = parse_autocomplete(
+            self._payload(
+                teachers=[
+                    {
+                        "slug": "avakyan-s",
+                        "fullName": "Авакян Сергей Левонович",
+                        "shortName": "Авакян С.Л.",
+                        "position": {"shortName": "доц."},
+                        "cafedra": {"shortName": "ВМ"},
+                        "faculty": {},
+                    }
+                ]
+            )
+        )
+        text = format_autocomplete(result, "авакян")
+        self.assertIn("авакян", text)
+        self.assertIn("avakyan-s", text)
+        self.assertIn("Авакян Сергей Левонович", text)
+        self.assertIn("доц.", text)
+        self.assertIn("--teacher avakyan-s", text)
+
+    def test_format_autocomplete_groups(self):
+        result = parse_autocomplete(
+            self._payload(
+                groups=[
+                    {
+                        "slug": "iti-31",
+                        "name": "ИТИ-31",
+                        "course": 3,
+                        "specialtyName": "ИС",
+                        "cafedraShortName": "ИТ",
+                        "facultyShortName": "ФАИС",
+                        "subgroupCount": 2,
+                    }
+                ]
+            )
+        )
+        text = format_autocomplete(result, "iti")
+        self.assertIn("--group iti-31", text)
+        self.assertIn("ИТИ-31", text)
+
+    def test_format_autocomplete_has_more(self):
+        result = parse_autocomplete(
+            self._payload(teachers=[{"slug": "x"}], has_more=True)
+        )
+        text = format_autocomplete(result, "x")
+        self.assertIn("Есть ещё результаты", text)
+
+    def test_format_autocomplete_empty(self):
+        result = parse_autocomplete(self._payload())
+        text = format_autocomplete(result, "zzz")
+        self.assertIn("ничего не найдено", text)
 
 
 class ParseEntityTests(unittest.TestCase):

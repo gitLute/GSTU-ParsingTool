@@ -263,3 +263,107 @@ def parse_payload(
         for it in data.get("scheduleItems") or []
     ]
     return entity, items
+
+
+# ---------------------------------------------------------------------------
+# Модели автоподбора (autocomplete)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class AutocompleteGroup:
+    slug: str
+    name: str
+    course: int
+    specialty_name: str
+    cafedra_short: str
+    faculty_short: str
+    subgroup_count: int
+
+
+@dataclass
+class AutocompleteTeacher:
+    slug: str
+    full_name: str
+    short_name: str
+    position: str
+    cafedra_short: str
+    faculty_short: str
+
+
+@dataclass
+class AutocompleteClassroom:
+    slug: str
+    name: str
+    room_number: str
+    building: str
+    floor: int
+    capacity: int
+    room_type: str
+    cafedra_short: str
+    faculty_short: str
+
+
+@dataclass
+class AutocompleteResult:
+    groups: list[AutocompleteGroup] = field(default_factory=list)
+    teachers: list[AutocompleteTeacher] = field(default_factory=list)
+    classrooms: list[AutocompleteClassroom] = field(default_factory=list)
+    has_more: bool = False
+
+    @property
+    def total(self) -> int:
+        return len(self.groups) + len(self.teachers) + len(self.classrooms)
+
+
+def _parse_ac_teacher(raw: dict[str, Any]) -> AutocompleteTeacher:
+    pos = raw.get("position") or {}
+    caf = raw.get("cafedra") or {}
+    fac = raw.get("faculty") or {}
+    return AutocompleteTeacher(
+        slug=raw.get("slug", ""),
+        full_name=raw.get("fullName", ""),
+        short_name=raw.get("shortName", ""),
+        position=pos.get("shortName") or pos.get("name") or "",
+        cafedra_short=caf.get("shortName") or "",
+        faculty_short=fac.get("shortName") or "",
+    )
+
+
+def _parse_ac_classroom(raw: dict[str, Any]) -> AutocompleteClassroom:
+    caf = raw.get("cafedra") or {}
+    fac = raw.get("faculty") or {}
+    return AutocompleteClassroom(
+        slug=raw.get("slug", ""),
+        name=raw.get("name", ""),
+        room_number=raw.get("roomNumber") or raw.get("slug", ""),
+        building=raw.get("building", ""),
+        floor=int(raw.get("floor", 0) or 0),
+        capacity=int(raw.get("capacity", 0) or 0),
+        room_type=raw.get("type", ""),
+        cafedra_short=caf.get("shortName") or "",
+        faculty_short=fac.get("shortName") or "",
+    )
+
+
+def _parse_ac_group(raw: dict[str, Any]) -> AutocompleteGroup:
+    return AutocompleteGroup(
+        slug=raw.get("slug", ""),
+        name=raw.get("name", ""),
+        course=int(raw.get("course", 0) or 0),
+        specialty_name=raw.get("specialtyName", ""),
+        cafedra_short=raw.get("cafedraShortName", ""),
+        faculty_short=raw.get("facultyShortName", ""),
+        subgroup_count=int(raw.get("subgroupCount", 0) or 0),
+    )
+
+
+def parse_autocomplete(payload: dict[str, Any]) -> AutocompleteResult:
+    """Разбирает ответ ``/autocomplete`` и возвращает ``AutocompleteResult``."""
+    data = payload.get("data") or {}
+    return AutocompleteResult(
+        groups=[_parse_ac_group(g) for g in data.get("groups") or []],
+        teachers=[_parse_ac_teacher(t) for t in data.get("teachers") or []],
+        classrooms=[_parse_ac_classroom(c) for c in data.get("classrooms") or []],
+        has_more=bool(data.get("hasMore", False)),
+    )

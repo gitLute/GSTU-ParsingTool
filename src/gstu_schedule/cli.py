@@ -37,6 +37,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--api-url", help="полный URL API (перекрывает api_base_url+type)"
     )
     parser.add_argument(
+        "--search",
+        metavar="QUERY",
+        help="поиск по autocomplete (группы, преподаватели, аудитории); "
+        "запускается вместо показа расписания",
+    )
+    parser.add_argument(
         "--subgroup",
         type=int,
         help="номер подгруппы; если не указан — показываются обе",
