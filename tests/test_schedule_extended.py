@@ -13,7 +13,14 @@ import urllib.parse
 from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
-from gstu_schedule.app import _date_title, _output_name, _week_title, run
+from gstu_schedule.app import (
+    _date_title,
+    _output_name,
+    _week_title,
+    run,
+    search,
+    search_hints,
+)
 from gstu_schedule.config import Config, dump_default_config, load_config
 from gstu_schedule.engine import (
     regex_matches,
@@ -32,6 +39,7 @@ from gstu_schedule.formatters import (
     _short_time,
     build_days_data,
     format_autocomplete,
+    format_autocomplete_hints,
     format_console,
     format_json,
     format_md,
@@ -394,6 +402,67 @@ class AutocompleteTests(unittest.TestCase):
         result = parse_autocomplete(self._payload())
         text = format_autocomplete(result, "zzz")
         self.assertIn("ничего не найдено", text)
+
+    def test_format_autocomplete_without_hints(self):
+        result = parse_autocomplete(
+            self._payload(
+                teachers=[
+                    {
+                        "slug": "avakyan-s",
+                        "fullName": "Авакян Сергей Левонович",
+                        "position": {"shortName": "доц."},
+                    }
+                ]
+            )
+        )
+        text = format_autocomplete(result, "авакян", show_hints=False)
+        self.assertNotIn("Для показа расписания:", text)
+        self.assertNotIn("--teacher", text)
+        self.assertNotIn("--classroom", text)
+        self.assertIn("Преподаватели:", text)
+
+    def test_format_autocomplete_hints(self):
+        result = parse_autocomplete(
+            self._payload(
+                teachers=[
+                    {
+                        "slug": "avakyan-e",
+                        "fullName": "Авакян Елена Зиновьевна",
+                        "position": {"shortName": "доц."},
+                    },
+                    {
+                        "slug": "avakyan-s",
+                        "fullName": "Авакян Сергей Левонович",
+                    },
+                ],
+                classrooms=[{"slug": "2-306", "name": "2-306", "roomNumber": "2-306"}],
+                groups=[{"slug": "iti-31", "name": "ИТИ-31"}],
+            )
+        )
+        text = format_autocomplete_hints(result)
+        lines = [line for line in text.splitlines() if line]
+        self.assertIn("--teacher avakyan-e   # Авакян Елена Зиновьевна", lines)
+        self.assertIn("--teacher avakyan-s   # Авакян Сергей Левонович", lines)
+        self.assertTrue(
+            any(
+                line.startswith("--classroom 2-306")
+                and line.rstrip().endswith("# 2-306")
+                for line in lines
+            )
+        )
+        self.assertTrue(
+            any(
+                line.startswith("--group iti-31") and line.rstrip().endswith("# ИТИ-31")
+                for line in lines
+            )
+        )
+        self.assertNotIn("Преподаватели:", text)
+        self.assertNotIn("Для показа расписания:", text)
+        self.assertNotIn("Поиск:", text)
+
+    def test_format_autocomplete_hints_empty(self):
+        result = parse_autocomplete(self._payload())
+        self.assertEqual(format_autocomplete_hints(result), "")
 
 
 class ParseEntityTests(unittest.TestCase):
@@ -927,6 +996,95 @@ class AppRunTests(unittest.TestCase):
             "gstu_schedule.app.fetch_schedule", return_value=self._payload()
         ):
             self.assertEqual(self._run(cfg), 1)
+
+
+class AutocompleteAppTests(unittest.TestCase):
+    @staticmethod
+    def _payload(teachers=None) -> dict:
+        return {
+            "success": True,
+            "data": {
+                "groups": [],
+                "teachers": teachers
+                or [
+                    {
+                        "slug": "avakyan-s",
+                        "fullName": "Авакян Сергей Левонович",
+                        "shortName": "Авакян С.Л.",
+                        "position": {"shortName": "доц."},
+                        "cafedra": {"shortName": "ВМ"},
+                        "faculty": {"shortName": "ФАИС"},
+                    }
+                ],
+                "classrooms": [],
+                "hasMore": False,
+            },
+        }
+
+    def _capture(self, fn, query, cfg) -> tuple[int, str]:
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(io.StringIO()):
+            code = fn(query, cfg)
+        return code, out.getvalue()
+
+    def test_search_not_empty(self):
+        cfg = Config()
+        with mock.patch(
+            "gstu_schedule.app.fetch_autocomplete", return_value=self._payload()
+        ):
+            code, out = self._capture(search, "авакян", cfg)
+        self.assertEqual(code, 0)
+        self.assertIn("Преподаватели:", out)
+        self.assertIn("avakyan-s", out)
+        self.assertNotIn("Для показа расписания:", out)
+        self.assertNotIn("--teacher", out)
+
+    def test_search_hints_only(self):
+        cfg = Config()
+        with mock.patch(
+            "gstu_schedule.app.fetch_autocomplete", return_value=self._payload()
+        ):
+            code, out = self._capture(search_hints, "авакян", cfg)
+        self.assertEqual(code, 0)
+        lines = out.splitlines()
+        self.assertEqual(lines, ["--teacher avakyan-s   # Авакян Сергей Левонович"])
+
+    def test_search_no_results(self):
+        payload = {
+            "success": True,
+            "data": {"groups": [], "teachers": [], "classrooms": [], "hasMore": False},
+        }
+        cfg = Config()
+        with mock.patch("gstu_schedule.app.fetch_autocomplete", return_value=payload):
+            code, out = self._capture(search, "x", cfg)
+        self.assertEqual(code, 1)
+
+    def test_search_hints_no_results(self):
+        payload = {
+            "success": True,
+            "data": {"groups": [], "teachers": [], "classrooms": [], "hasMore": False},
+        }
+        cfg = Config()
+        with mock.patch("gstu_schedule.app.fetch_autocomplete", return_value=payload):
+            code, out = self._capture(search_hints, "x", cfg)
+        self.assertEqual(code, 1)
+
+    def test_search_fetch_error(self):
+        cfg = Config()
+        with mock.patch(
+            "gstu_schedule.app.fetch_autocomplete",
+            side_effect=RuntimeError("не удалось соединиться"),
+        ):
+            code, out = self._capture(search, "x", cfg)
+        self.assertEqual(code, 1)
+
+    def test_search_success_false(self):
+        cfg = Config()
+        with mock.patch(
+            "gstu_schedule.app.fetch_autocomplete", return_value={"success": False}
+        ):
+            code, out = self._capture(search, "x", cfg)
+        self.assertEqual(code, 1)
 
 
 if __name__ == "__main__":

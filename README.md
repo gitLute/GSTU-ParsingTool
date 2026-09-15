@@ -100,6 +100,7 @@ python3 src/main.py --group iti-31
 | `--classroom ROOM` | аудитория, например `2-306` |
 | `--api-url URL` | полный URL API (перекрывает `api_base_url`+`type`) |
 | `--search QUERY` | поиск по autocomplete (группы, преподаватели, аудитории); вместо показа расписания выводит список найденных сущностей |
+| `--search-hints QUERY` | поиск по autocomplete: выводит только готовые команды (`--group SLUG`, `--teacher SLUG`, `--classroom ROOM`) |
 | `--subgroup N` | номер подгруппы; без указания показываются обе |
 | `--lesson-type ТИП` | тип занятия: `лаб`, `лек`, `пр`, …; можно несколько раз, `none` — без типа |
 | `--regex PATTERN` | регулярное выражение для поиска по тексту занятия; можно несколько раз — подходит хотя бы одно |
@@ -113,6 +114,15 @@ python3 src/main.py --group iti-31
 
 Параметры `--group`, `--teacher` и `--classroom` неявно задают тип
 расписания, если `--type` не указан.
+
+`--search` и `--search-hints` запрашивают один и тот же эндпоинт
+`/autocomplete`, но выводят результат по-разному:
+
+- `--search QUERY` — человекочитаемый список по категориям
+  («Преподаватели», «Аудитории», «Группы»);
+- `--search-hints QUERY` — только готовые команды для копирования
+  (`--teacher avakyan-s   # Авакян Сергей Левонович`), удобно для подстановки
+  в шелл/скрипты.
 
 ## Конфигурация (`config.json`)
 
@@ -217,6 +227,12 @@ PYTHONPATH=src python3 -m gstu_schedule --search "306"
 
 # Поиск группы (подстрока имени)
 PYTHONPATH=src python3 -m gstu_schedule --search "iti"
+
+# Поиск с выводом только готовых команд (для скриптов/подстановки)
+PYTHONPATH=src python3 -m gstu_schedule --search-hints "авакян"
+
+# Готовые команды удобно подставлять дальше:
+PYTHONPATH=src python3 -m gstu_schedule $(PYTHONPATH=src python3 -m gstu_schedule --search-hints "306" | head -1)
 
 # Неделя с 21.09.2026 (нечётная), сохранить .md и .json
 PYTHONPATH=src python3 -m gstu_schedule --group iti-31 --date 2026-09-21 --format all
