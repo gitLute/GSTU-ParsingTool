@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from .app import run, search
+from .app import run, search, search_hints
 from .cli import apply_args, build_parser
 from .config import load_config
 
@@ -20,6 +20,8 @@ def main() -> int:
         return 0
     cfg = load_config(args.config)
     cfg = apply_args(cfg, args)
+    if args.search_hints is not None:
+        return search_hints(args.search_hints, cfg)
     if args.search is not None:
         return search(args.search, cfg)
     return run(cfg)

@@ -43,6 +43,12 @@ def build_parser() -> argparse.ArgumentParser:
         "запускается вместо показа расписания",
     )
     parser.add_argument(
+        "--search-hints",
+        metavar="QUERY",
+        help="поиск по autocomplete: выводит только готовые команды "
+        "(--group SLUG, --teacher SLUG, --classroom ROOM)",
+    )
+    parser.add_argument(
         "--subgroup",
         type=int,
         help="номер подгруппы; если не указан — показываются обе",

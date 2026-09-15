@@ -18,12 +18,19 @@ from .engine import (
 from .fetcher import fetch_autocomplete, fetch_schedule, parse_api_url
 from .formatters import (
     format_autocomplete,
+    format_autocomplete_hints,
     format_console,
     format_json,
     format_md,
     validate_lesson_template,
 )
-from .models import Entity, ScheduleItem, parse_autocomplete, parse_payload
+from .models import (
+    AutocompleteResult,
+    Entity,
+    ScheduleItem,
+    parse_autocomplete,
+    parse_payload,
+)
 
 _KIND_NOUN = {
     "group": "группы",
@@ -86,22 +93,43 @@ def _schedule_label(kind: str, display_name: str) -> str:
     return f"Расписание {noun} {display_name}".rstrip()
 
 
-def search(query: str, cfg: Config) -> int:
-    """Автоподбор: ищет группы/преподавателей/аудитории по ``autocomplete``."""
-    query = query.strip()
+def _autocomplete_result(query: str, cfg: Config) -> AutocompleteResult | None:
+    """Запрос автоподбора. Возвращает ``None`` при ошибке."""
     try:
         payload = fetch_autocomplete(query, cfg.api_base_url)
     except RuntimeError as exc:
         print(f"ОШИБКА: {exc}", file=sys.stderr)
-        return 1
+        return None
     if not payload.get("success", True):
         print("ОШИБКА: API вернул success=false", file=sys.stderr)
+        return None
+    return parse_autocomplete(payload)
+
+
+def search(query: str, cfg: Config) -> int:
+    """Автоподбор: ищет группы/преподавателей/аудитории по ``autocomplete``."""
+    query = query.strip()
+    result = _autocomplete_result(query, cfg)
+    if result is None:
         return 1
-    result = parse_autocomplete(payload)
     if not result.total:
         print(f"По запросу «{query}» ничего не найдено.", file=sys.stderr)
         return 1
-    print(format_autocomplete(result, query))
+    print(format_autocomplete(result, query, show_hints=False))
+    return 0
+
+
+def search_hints(query: str, cfg: Config) -> int:
+    """Автоподбор: выводит только готовые команды ``--kind slug``."""
+    query = query.strip()
+    result = _autocomplete_result(query, cfg)
+    if result is None:
+        return 1
+    text = format_autocomplete_hints(result)
+    if not text:
+        print(f"По запросу «{query}» ничего не найдено.", file=sys.stderr)
+        return 1
+    print(text)
     return 0
 
 

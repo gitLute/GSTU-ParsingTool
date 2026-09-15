@@ -348,25 +348,40 @@ def format_json(
 # ---------------------------------------------------------------------------- autocomplete
 
 
+def _autocomplete_hint_pairs(result: AutocompleteResult) -> list[tuple[str, str]]:
+    """Пары ``(команда, имя)`` для всех найденных сущностей."""
+    pairs: list[tuple[str, str]] = []
+    for t in result.teachers:
+        pairs.append((f"--teacher {t.slug}", t.full_name or t.short_name or t.slug))
+    for c in result.classrooms:
+        pairs.append((f"--classroom {c.slug}", c.name or c.room_number))
+    for g in result.groups:
+        pairs.append((f"--group {g.slug}", g.name or g.slug))
+    return pairs
+
+
+def _autocomplete_hint_lines(result: AutocompleteResult) -> list[str]:
+    """Выровненные строки подсказок вида ``--kind slug   # имя``."""
+    pairs = _autocomplete_hint_pairs(result)
+    if not pairs:
+        return []
+    width = max(len(cmd) for cmd, _ in pairs)
+    return [f"{cmd:<{width}}   # {label}" for cmd, label in pairs]
+
+
 def _autocomplete_usage_note(result: AutocompleteResult, query: str) -> list[str]:
     """Подсказывает команду для каждой найденной сущности."""
-    lines = [""]
-    for t in result.teachers:
-        lines.append(
-            f"  --teacher {t.slug}   # {t.full_name or t.short_name or t.slug}"
-        )
-    for c in result.classrooms:
-        lines.append(f"  --classroom {c.slug}   # {c.name or c.room_number}")
-    for g in result.groups:
-        lines.append(f"  --group {g.slug}   # {g.name}")
-    if len(lines) == 1:
-        lines.append(f"  По запросу «{query}» ничего не найдено.")
-    else:
-        lines.insert(0, "Для показа расписания:")
+    hint_lines = _autocomplete_hint_lines(result)
+    if not hint_lines:
+        return [f"  По запросу «{query}» ничего не найдено."]
+    lines = ["", "Для показа расписания:"]
+    lines.extend(f"  {line}" for line in hint_lines)
     return lines
 
 
-def format_autocomplete(result: AutocompleteResult, query: str) -> str:
+def format_autocomplete(
+    result: AutocompleteResult, query: str, show_hints: bool = True
+) -> str:
     """Оформляет результат автоподбора для вывода в консоль."""
     lines: list[str] = []
     sep = "=" * 60
@@ -421,5 +436,11 @@ def format_autocomplete(result: AutocompleteResult, query: str) -> str:
         lines.append("")
         lines.append("Есть ещё результаты — уточните запрос.")
 
-    lines.extend(_autocomplete_usage_note(result, query))
+    if show_hints:
+        lines.extend(_autocomplete_usage_note(result, query))
     return "\n".join(lines)
+
+
+def format_autocomplete_hints(result: AutocompleteResult) -> str:
+    """Только готовые команды: по одной строке на сущность."""
+    return "\n".join(_autocomplete_hint_lines(result))
