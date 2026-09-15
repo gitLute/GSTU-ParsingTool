@@ -6,6 +6,7 @@ import datetime as dt
 import io
 import json
 import os
+import sys
 import tempfile
 import unittest
 import urllib.error
@@ -59,6 +60,7 @@ from gstu_schedule.models import (
     parse_payload,
     parse_schedule_item,
 )
+from gstu_schedule.__main__ import main as cli_main
 
 
 def item_factory(
@@ -1085,6 +1087,58 @@ class AutocompleteAppTests(unittest.TestCase):
         ):
             code, out = self._capture(search, "x", cfg)
         self.assertEqual(code, 1)
+
+
+class CliMainConfigErrorTests(unittest.TestCase):
+    """main() должен аккуратно сообщать об ошибках конфига, а не кидать traceback."""
+
+    def _write_config(self, d: str, content: str) -> str:
+        path = os.path.join(d, "config.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        return path
+
+    def _run(self, path: str) -> tuple[int, str]:
+        err = io.StringIO()
+        with (
+            mock.patch.object(sys, "argv", ["gstu-schedule", "--config", path]),
+            mock.patch("sys.stderr", new_callable=lambda: err),
+        ):
+            code = cli_main()
+        return code, err.getvalue()
+
+    def test_unknown_field_reports_clean_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._write_config(d, '{"bogus": 1}\n')
+            code, err = self._run(path)
+        self.assertEqual(code, 1)
+        self.assertIn("ОШИБКА:", err)
+        self.assertIn("неизвестное поле", err)
+        self.assertNotIn("Traceback", err)
+
+    def test_malformed_json_reports_clean_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._write_config(d, "{invalid json\n")
+            code, err = self._run(path)
+        self.assertEqual(code, 1)
+        self.assertIn("ОШИБКА:", err)
+        self.assertNotIn("Traceback", err)
+
+    def test_non_dict_config_reports_clean_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._write_config(d, "[1, 2]\n")
+            code, err = self._run(path)
+        self.assertEqual(code, 1)
+        self.assertIn("ОШИБКА:", err)
+        self.assertNotIn("Traceback", err)
+
+    def test_invalid_schedule_type_reports_clean_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._write_config(d, '{"schedule_type": "bogus"}\n')
+            code, err = self._run(path)
+        self.assertEqual(code, 1)
+        self.assertIn("ОШИБКА:", err)
+        self.assertNotIn("Traceback", err)
 
 
 if __name__ == "__main__":

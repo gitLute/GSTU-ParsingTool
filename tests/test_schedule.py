@@ -298,6 +298,23 @@ class TermStartTests(unittest.TestCase):
         item = item_factory("MONDAY", WEEK_ALL)
         self.assertEqual(term_start([item]), dt.date(2026, 9, 7))
 
+    def test_term_start_uses_modal_week_not_min_outlier(self):
+        # Одиночное старое занятие (прошлогодний курс в расписании аудитории)
+        # не должно уводить счётчик недель на десятки недель назад.
+        current = item_factory("MONDAY", WEEK_ALL)
+        current.start_date = dt.date(2026, 9, 8)  # вторник → неделя 2026-09-07
+        stale = item_factory("MONDAY", WEEK_ALL)
+        stale.start_date = dt.date(2025, 9, 1)  # понедельник → неделя 2025-09-01
+        self.assertEqual(
+            term_start([current, current, current, stale]),
+            dt.date(2026, 9, 7),
+        )
+
+    def test_term_start_rounds_up_to_monday(self):
+        item = item_factory("MONDAY", WEEK_ALL)
+        item.start_date = dt.date(2026, 9, 9)  # среда
+        self.assertEqual(term_start([item]), dt.date(2026, 9, 7))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,7 +6,16 @@ import sys
 
 from .app import run, search, search_hints
 from .cli import apply_args, build_parser
-from .config import load_config
+from .config import Config, load_config
+
+
+def _load_config(path: str) -> "Config | None":
+    """Читает конфиг, превращая ошибки файла в аккуратный вывод в stderr."""
+    try:
+        return load_config(path)
+    except (ValueError, OSError) as exc:
+        print(f"ОШИБКА: {exc}", file=sys.stderr)
+        return None
 
 
 def main() -> int:
@@ -18,7 +27,9 @@ def main() -> int:
         dump_default_config(args.config)
         print(f"Создан шаблон: {args.config}")
         return 0
-    cfg = load_config(args.config)
+    cfg = _load_config(args.config)
+    if cfg is None:
+        return 1
     cfg = apply_args(cfg, args)
     if args.search_hints is not None:
         return search_hints(args.search_hints, cfg)

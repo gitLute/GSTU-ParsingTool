@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import datetime as dt
 import re
+from collections import Counter
 from typing import Optional
 
 from .models import (
@@ -27,12 +28,21 @@ WEEKDAYS_PERIOD = dt.timedelta(days=7)
 def term_start(items: list[ScheduleItem]) -> dt.date:
     """Понедельник первой недели семестра.
 
-    Берётся самая ранняя startDate среди занятий, затем понедельник
-    недели, в которую она попадает (неделя 1 считается с понедельника).
-    При необходимости можно задать вручную через конфиг ``semester_start``.
+    Берётся понедельник недели, которая встречается чаще всего среди
+    ``startDate`` занятий (мода). Такой выбор устойчив к единичным
+    «выбивающимся» записям из прошлого периода — например, к двухгодичному
+    курсу в расписании аудитории, который не должен уводить счётчик недель
+    на десятки недель назад. При необходимости можно задать вручную через
+    конфиг ``semester_start``.
     """
-    earliest = min((it.start_date for it in items), default=dt.date.today())
-    return earliest - dt.timedelta(days=earliest.weekday())
+    if not items:
+        today = dt.date.today()
+        return today - dt.timedelta(days=today.weekday())
+    weeks = Counter(
+        it.start_date - dt.timedelta(days=it.start_date.weekday()) for it in items
+    )
+    best = max(weeks.values())
+    return min(monday for monday, count in weeks.items() if count == best)
 
 
 def week_number(value: dt.date, term_start_date: dt.date) -> int:
