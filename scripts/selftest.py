@@ -13,6 +13,9 @@ initialize -> list_tools -> search_entities -> get_schedule
 
     # преподаватель на конкретную дату
     python3 scripts/selftest.py --type teacher --slug avakyan-s --date 2026-09-21 --view date
+
+    # профиль студента (env GSTU_STUDENT): get_student_profile + расписание без slug
+    python3 scripts/selftest.py --student-profile ~/.config/opencode/.secrets/gstu-student.json
 """
 
 from __future__ import annotations
@@ -40,10 +43,12 @@ SERVER_CMD = [
 ]
 
 
-def _env() -> dict:
+def _env(profile_raw: str | None = None) -> dict:
     env = dict(os.environ)
     env["PYTHONPATH"] = str(SRC) + os.pathsep + env.get("PYTHONPATH", "")
     env["PYTHONUNBUFFERED"] = "1"
+    if profile_raw is not None:
+        env["GSTU_STUDENT"] = profile_raw
     return env
 
 
@@ -54,9 +59,22 @@ def _dump(label: str, obj) -> None:
     print()
 
 
+async def _call_json(session, tool: str, args: dict) -> dict:
+    """Вызов инструмента MCP и разбор текстового JSON-ответа."""
+    res = await session.call_tool(tool, args)
+    text = "".join(c.text or "" for c in res.content if c.type == "text")
+    return json.loads(text)
+
+
 async def main(args: argparse.Namespace) -> int:
+    profile_raw = None
+    if args.student_profile:
+        profile_path = Path(args.student_profile)
+        profile_raw = profile_path.read_text(encoding="utf-8").strip()
+        print(f"=== профиль студента: {profile_path} ({len(profile_raw)} симв.) ===")
+
     params = StdioServerParameters(
-        command=SERVER_CMD[0], args=SERVER_CMD[1:], env=_env()
+        command=SERVER_CMD[0], args=SERVER_CMD[1:], env=_env(profile_raw)
     )
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
@@ -81,13 +99,9 @@ async def main(args: argparse.Namespace) -> int:
                 return 1
 
             # 1. Автоподбор.
-            search_res = await session.call_tool(
-                "search_entities", {"query": args.search}
+            search_data = await _call_json(
+                session, "search_entities", {"query": args.search}
             )
-            search_text = "".join(
-                c.text or "" for c in search_res.content if c.type == "text"
-            )
-            search_data = json.loads(search_text)
             print(
                 f"=== search_entities('{args.search}'): найдено {search_data['total']} ==="
             )
@@ -114,11 +128,7 @@ async def main(args: argparse.Namespace) -> int:
             if args.lesson_format:
                 tool_args["lesson_format"] = args.lesson_format
 
-            sched_res = await session.call_tool("get_schedule", tool_args)
-            sched_text = "".join(
-                c.text or "" for c in sched_res.content if c.type == "text"
-            )
-            sched = json.loads(sched_text)
+            sched = await _call_json(session, "get_schedule", tool_args)
             entity = sched["entity"]["name"] or sched["entity"]["slug"]
             total = sum(len(d["lessons"]) for d in sched["days"])
             print(
@@ -137,6 +147,32 @@ async def main(args: argparse.Namespace) -> int:
                     )
             if total == 0:
                 print("  ВНИМАНИЕ: занятий на период не найдено")
+
+            # 3. Профиль студента: get_student_profile и расписание без slug.
+            if profile_raw is not None:
+                prof = await _call_json(session, "get_student_profile", {})
+                print(f"=== get_student_profile: configured={prof['configured']} ===")
+                if prof.get("error"):
+                    print(f"  ОШИБКА профиля: {prof['error']}", file=sys.stderr)
+                    return 1
+                if prof["configured"]:
+                    p = prof["profile"]
+                    print(
+                        f"  group={p.get('group')}, subgroup={p.get('subgroup')}, "
+                        f"fullName={p.get('fullName')}"
+                    )
+                prof_args = {"schedule_type": "group", "view": args.view}
+                if args.date:
+                    prof_args["date"] = args.date
+                prof_sched = await _call_json(session, "get_schedule", prof_args)
+                entity = prof_sched["entity"]["name"] or prof_sched["entity"]["slug"]
+                total = sum(len(d["lessons"]) for d in prof_sched["days"])
+                print(
+                    f"=== get_schedule без slug (группа из профиля): "
+                    f"{entity}, занятий {total} ==="
+                )
+                if total == 0:
+                    print("  ВНИМАНИЕ: занятий на период не найдено")
             return 0
 
 
@@ -159,6 +195,15 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--format", dest="lesson_format", help="шаблон строки занятия")
     ap.add_argument(
         "--search", default="iti", help="запрос автоподбора (по умолчанию iti)"
+    )
+    ap.add_argument(
+        "--student-profile",
+        metavar="FILE",
+        help=(
+            "путь к JSON-файлу профиля студента: содержимое передаётся серверу "
+            "в env GSTU_STUDENT, проверяются get_student_profile и get_schedule "
+            "без slug (дефолты из профиля)"
+        ),
     )
     return ap
 

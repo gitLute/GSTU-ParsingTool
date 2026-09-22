@@ -66,6 +66,7 @@ GSTU-ParsingTool/
 │   └── selftest.py                # smoke-тест MCP-сервера (stdio + реальный API)
 ├── pyproject.toml                 # сборка/установка пакета (incl. MCP-сервера)
 ├── config.json                    # конфигурация по умолчанию
+├── config.student.example.json    # шаблон профиля студента для GSTU_STUDENT
 └── README.md
 ```
 
@@ -327,7 +328,10 @@ opencode) получает расписание занятий напрямую:
   или конкретную дату с фильтрами по подгруппе, типу занятия и
   регулярным выражениям;
 - `search_entities` — автоподбор сущностей по подстроке (группы,
-  преподаватели, аудитории) с выдачей `slug` для подстановки.
+  преподаватели, аудитории) с выдачей `slug` для подстановки;
+- `get_student_profile` — профиль студента из переменной окружения
+  `GSTU_STUDENT`; поля `group`/`subgroup` используются `get_schedule`
+  как значения по умолчанию, когда `slug` не задан.
 
 Сервер переиспользует парсер и логику выбора занятий консольной утилиты
 (`gstu_schedule`), поэтому результаты идентичны CLI: та же неделя,
@@ -369,18 +373,58 @@ PYTHONPATH=src python3 -m gstu_schedule_mcp --stdio
   "command": [
     "/home/lute/.local/bin/MCP/PytnonVenv/bin/gstu-schedule-mcp-server",
     "--stdio"
-  ]
+  ],
+  "environment": {
+    "GSTU_STUDENT": "{file:~/.config/opencode/.secrets/gstu-student.json}"
+  }
 }
 ```
 
 После перезапуска opencode сервер доступен как `gstu-schedule`.
 
+### Профиль студента
+
+Сервер умеет принимать файл с данными о студенте: его содержимое
+передаётся в переменную окружения `GSTU_STUDENT` через opencode-ссылку
+`{file:...}` (тот же механизм, что у токенов в `.secrets`). Профиль
+позволяет вызывать `get_schedule` без `slug` — группа и подгруппа
+берутся из профиля.
+
+Файл хранится в `~/.config/opencode/.secrets/gstu-student.json`
+(создаётся вручную, права доступа 600) по шаблону
+`config.student.example.json` из репозитория:
+
+```json
+{
+  "fullName": "Иванов Иван Иванович",
+  "group": "iti-31",
+  "groupName": "ИТИ-31",
+  "subgroup": 1,
+  "course": 3,
+  "faculty": "Факультет автоматизированных и информационных систем",
+  "specialty": "Информационные системы и технологии"
+}
+```
+
+Логически используются только поля `group` (slug группы) и `subgroup`
+(номер подгруппы) — остальные информационные. Если переменная задана,
+но её содержимое не является валидным JSON-объектом, `get_schedule`
+вернёт `ToolError` с описанием проблемы, а `get_student_profile` —
+статус `configured: false` и текст ошибки.
+
+Основные сценарии:
+
+- `get_student_profile()` — показать профиль студента;
+- `get_schedule(view="week")` — расписание своей группы на неделю
+  (без `slug` — берётся группа и подгруппа из профиля).
+
 ### Инструменты
 
 | Инструмент | Назначение |
 |---|---|
-| `get_schedule` | расписание группы (`iti-31`), преподавателя (`avakyan-s`) или аудитории (`2-306`) на неделю/дату; фильтры: `subgroup`, `lesson_types` (лаб/лек/пр, `none` — без типа), `regex_filter`, `semester_start`; опциональный шаблон занятия `lesson_format` (`{number} {time} {subject} {subject_full} {type} {type_full} {groups} {teachers} {rooms} {week}`) |
+| `get_schedule` | расписание группы (`iti-31`), преподавателя (`avakyan-s`) или аудитории (`2-306`) на неделю/дату; фильтры: `subgroup`, `lesson_types` (лаб/лек/пр, `none` — без типа), `regex_filter`, `semester_start`; опциональный шаблон занятия `lesson_format` (`{number} {time} {subject} {subject_full} {type} {type_full} {groups} {teachers} {rooms} {week}`); при пустом `slug` и типе `group` используются группа/подгруппа из профиля `GSTU_STUDENT` |
 | `search_entities` | поиск по автоподбору: подстрока имени/номера → сущности со `slug` для `get_schedule` |
+| `get_student_profile` | профиль студента из `GSTU_STUDENT`: `configured`, данные профиля, `error` при некорректном содержимом |
 
 ### Примеры использования агентом
 
@@ -390,6 +434,8 @@ PYTHONPATH=src python3 -m gstu_schedule_mcp --stdio
 4. Лабораторные у преподавателя: `get_schedule(schedule_type="teacher", slug="avakyan-s", lesson_types=["лаб"])`.
 5. Поиск аудитории по номеру и её расписание:
    `search_entities(query="306")` → `get_schedule(schedule_type="classroom", slug="2-306")`.
+6. Расписание своей группы из профиля: `get_student_profile()` →
+   `get_schedule(view="week")`.
 
 ### Smoke-тест
 
@@ -401,7 +447,9 @@ PYTHONPATH=src python3 -m gstu_schedule_mcp --stdio
 ```
 
 Аргументы: `--type group|teacher|classroom`, `--slug`, `--date`, `--view`,
-`--subgroup`, `--lesson-types`, `--regex`, `--format`, `--search`.
+`--subgroup`, `--lesson-types`, `--regex`, `--format`, `--search`,
+`--student-profile FILE` (проверка профиля: `get_student_profile` +
+расписание без `slug`).
 
 Юнит-тесты не требуют сети и проверяют построение данных на синтетических
 ответах API (`tests/test_mcp_server.py`).

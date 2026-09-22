@@ -9,7 +9,10 @@
     конкретную дату с фильтрами по подгруппе, типу занятия и регулярным
     выражениям (get_schedule);
   - искать сущности через автоподбор /autocomplete и получать их slug
-    (search_entities) для последующей подстановки в get_schedule.
+    (search_entities) для последующей подстановки в get_schedule;
+  - работать с профилем студента из переменной окружения GSTU_STUDENT
+    (ФИО/группа/подгруппа): get_schedule без slug берёт группу и подгруппу
+    из профиля, get_student_profile показывает данные профиля.
 
 Данные загружаются с публичного API https://sc.gstu.by и возвращаются
 структурированным JSON: дни недели с занятиями (время, предмет, тип,
@@ -18,6 +21,7 @@
 
 import argparse
 import datetime as dt
+import json
 import os
 import sys
 import threading
@@ -53,6 +57,12 @@ from gstu_schedule.models import Entity, parse_autocomplete, parse_payload
 SERVER_NAME = "gstu-schedule"
 SERVER_VERSION = "1.0.0"
 
+# Переменная окружения с профилем студента (JSON): содержимое файла
+# подставляется opencode через ссылку {file:...} (как GITHUB_PERSONAL_ACCESS_TOKEN
+# в конфиге). Поля group и subgroup используются get_schedule как значения
+# по умолчанию, остальные — информационные.
+STUDENT_PROFILE_ENV = "GSTU_STUDENT"
+
 instructions = (
     "Сервер отдаёт расписание занятий Гомельского государственного "
     "технического университета им. П. О. Сухого через публичное API "
@@ -60,7 +70,10 @@ instructions = (
     "преподавателя или аудитории, например 'iti' или 'авакян') -> "
     "get_schedule со slug из результата. Расписание можно фильтровать "
     "по подгруппе, типу занятия и регулярным выражениям, а также "
-    "запрашивать на конкретную дату или неделю."
+    "запрашивать на конкретную дату или неделю. Если в окружении задан "
+    "профиль студента (переменная GSTU_STUDENT), get_schedule можно "
+    "вызывать без slug: группа и подгруппа будут взяты из профиля; "
+    "содержимое профиля показывает get_student_profile."
 )
 
 mcp = FastMCP(
@@ -114,6 +127,41 @@ def _parse_date(value: str | None, field: str) -> dt.date | None:
         raise ToolError(
             f"некорректная дата {field}={value!r} (ожидается YYYY-MM-DD)"
         ) from None
+
+
+def _validate_profile(data: dict) -> str | None:
+    """Проверка полей профиля студента; возвращает описание ошибки или None."""
+    group = data.get("group")
+    if group is not None and (not isinstance(group, str) or not group.strip()):
+        return "поле group должно быть непустой строкой (slug группы)"
+    subgroup = data.get("subgroup")
+    if subgroup is not None and (
+        isinstance(subgroup, bool) or not isinstance(subgroup, int) or subgroup < 1
+    ):
+        return "поле subgroup должно быть положительным целым числом"
+    return None
+
+
+def load_student_profile() -> tuple[dict | None, str | None]:
+    """Профиль студента из переменной окружения GSTU_STUDENT (JSON).
+
+    Возвращает пару (профиль, ошибка). Переменная не задана — (None, None);
+    задана, но содержимое не является валидным JSON-объектом с корректными
+    полями group/subgroup — (None, описание ошибки) для диагностики.
+    """
+    raw = os.environ.get(STUDENT_PROFILE_ENV, "").strip()
+    if not raw:
+        return None, None
+    try:
+        data = json.loads(raw)
+    except ValueError as exc:
+        return None, f"{STUDENT_PROFILE_ENV}: некорректный JSON: {exc}"
+    if not isinstance(data, dict):
+        return None, f"{STUDENT_PROFILE_ENV}: ожидается JSON-объект"
+    error = _validate_profile(data)
+    if error:
+        return None, f"{STUDENT_PROFILE_ENV}: {error}"
+    return data, None
 
 
 def build_schedule_data(
@@ -259,7 +307,9 @@ def build_search_data(query: str) -> dict:
         "подходит хотя бы одно). semester_start — понедельник первой недели семестра "
         "(по умолчанию вычисляется по данным API). lesson_format — шаблон строки "
         "занятия с плейсхолдерами {number} {time} {subject} {subject_full} {type} "
-        "{type_full} {groups} {teachers} {rooms} {week}. Возвращает дни с занятиями."
+        "{type_full} {groups} {teachers} {rooms} {week}. Если slug не задан и "
+        "schedule_type='group', берётся группа (и подгруппа) из профиля студента "
+        "GSTU_STUDENT. Возвращает дни с занятиями."
     )
 )
 def get_schedule(
@@ -274,6 +324,16 @@ def get_schedule(
     lesson_format: str | None = None,
 ) -> dict:
     """Расписание группы/преподавателя/аудитории с фильтрами."""
+    profile, profile_error = load_student_profile()
+    if profile_error:
+        # Переменная окружения задана, но её содержимое не читается —
+        # это ошибка конфигурации, о ней нужно сообщить, а не молча игнорировать.
+        raise ToolError(profile_error)
+    if profile and schedule_type == "group":
+        if not (slug or "").strip() and profile.get("group"):
+            slug = profile["group"]
+        if subgroup is None and profile.get("subgroup") is not None:
+            subgroup = int(profile["subgroup"])
     try:
         return build_schedule_data(
             schedule_type=schedule_type,
@@ -292,6 +352,26 @@ def get_schedule(
         raise ToolError(str(exc)) from exc
     except (ValueError, KeyError) as exc:
         raise ToolError(f"некорректный ответ API: {exc}") from exc
+
+
+@mcp.tool(
+    description=(
+        "Профиль студента из переменной окружения GSTU_STUDENT (JSON; обычно "
+        "подключается в opencode.json через ссылку {file:...} на файл в "
+        ".secrets). Возвращает configured (true/false), профиль (ФИО, группа, "
+        "подгруппа, курс, специальность и т.п.) и error при некорректном "
+        "содержимом. Поля group и subgroup используются get_schedule как "
+        "значения по умолчанию, когда slug не задан."
+    )
+)
+def get_student_profile() -> dict:
+    """Профиль студента из переменной окружения GSTU_STUDENT."""
+    profile, error = load_student_profile()
+    if error:
+        return {"configured": False, "profile": None, "error": error}
+    if profile is None:
+        return {"configured": False, "profile": None, "error": None}
+    return {"configured": True, "profile": profile, "error": None}
 
 
 @mcp.tool(

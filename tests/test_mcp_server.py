@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import os
 import time
 import unittest
 from unittest.mock import patch
@@ -207,20 +209,150 @@ class BuildSearchDataTests(unittest.TestCase):
             build_search_data("iti")
 
 
+class StudentProfileTests(unittest.TestCase):
+    """Профиль студента из env GSTU_STUDENT: чтение, валидация, дефолты."""
+
+    @staticmethod
+    def _with_env(payload: str | None) -> dict | None:
+        """Читает профиль при заданном содержимом переменной окружения."""
+        env = {}
+        if payload is not None:
+            env[server.STUDENT_PROFILE_ENV] = payload
+        with patch.dict(os.environ, env, clear=False):
+            return server.load_student_profile()
+
+    def test_env_missing(self) -> None:
+        """Переменная не задана — профиль и ошибка отсутствуют."""
+        profile, error = self._with_env(None)
+        self.assertIsNone(profile)
+        self.assertIsNone(error)
+
+    def test_valid_json(self) -> None:
+        """Валидный JSON-объект читается целиком."""
+        payload = json.dumps(
+            {"fullName": "Иванов Иван Иванович", "group": "iti-31", "subgroup": 2}
+        )
+        profile, error = self._with_env(payload)
+        self.assertIsNone(error)
+        self.assertEqual(profile["group"], "iti-31")
+        self.assertEqual(profile["subgroup"], 2)
+        self.assertEqual(profile["fullName"], "Иванов Иван Иванович")
+
+    def test_broken_json(self) -> None:
+        """Некорректный JSON — ошибка с именем переменной."""
+        profile, error = self._with_env("{oops")
+        self.assertIsNone(profile)
+        self.assertIn(server.STUDENT_PROFILE_ENV, error)
+
+    def test_not_object(self) -> None:
+        """JSON не объект (например, массив) — ошибка."""
+        profile, error = self._with_env("[1, 2, 3]")
+        self.assertIsNone(profile)
+        self.assertIn("JSON-объект", error)
+
+    def test_bad_group_field(self) -> None:
+        """group не строка — ошибка."""
+        profile, error = self._with_env(json.dumps({"group": 123}))
+        self.assertIsNone(profile)
+        self.assertIn("group", error)
+
+    def test_bad_subgroup_field(self) -> None:
+        """subgroup меньше 1 или не число — ошибка."""
+        profile, error = self._with_env(json.dumps({"subgroup": 0}))
+        self.assertIsNone(profile)
+        self.assertIn("subgroup", error)
+
+    @patch("gstu_schedule_mcp.server.fetch_schedule", return_value=PAYLOAD)
+    @patch(
+        "gstu_schedule_mcp.server.load_student_profile",
+        return_value=({"group": "iti-31", "subgroup": 1, "fullName": "Иванов"}, None),
+    )
+    def test_get_schedule_uses_profile_defaults(self, mock_profile, mock_fetch) -> None:
+        """Без slug берутся группа и подгруппа из профиля GSTU_STUDENT."""
+        result = server.get_schedule(view="date", date="2026-09-21")
+        self.assertEqual(result["schedule"]["slug"], "iti-31")
+        self.assertEqual(result["scope"]["subgroup"], 1)
+        mock_fetch.assert_called_once()
+        url = mock_fetch.call_args.args[0]
+        self.assertIn("/group/iti-31", url)
+
+    @patch(
+        "gstu_schedule_mcp.server.load_student_profile",
+        return_value=(None, None),
+    )
+    def test_no_slug_and_no_profile_raises(self, mock_profile) -> None:
+        """Без slug и без профиля — ToolError с просьбой указать slug."""
+        with self.assertRaises(ToolError):
+            server.get_schedule(view="date", date="2026-09-21")
+
+    @patch("gstu_schedule_mcp.server.fetch_schedule", return_value=PAYLOAD)
+    @patch(
+        "gstu_schedule_mcp.server.load_student_profile",
+        return_value=({"group": "iti-31", "subgroup": 1}, None),
+    )
+    def test_profile_explicit_slug_wins(self, mock_profile, mock_fetch) -> None:
+        """Явно переданный slug и подгруппа перекрывают профиль."""
+        result = server.get_schedule(
+            "group", "iti-31", view="date", date="2026-09-21", subgroup=2
+        )
+        self.assertEqual(result["scope"]["subgroup"], 2)
+        url = mock_fetch.call_args.args[0]
+        self.assertIn("/group/iti-31", url)
+
+    @patch(
+        "gstu_schedule_mcp.server.load_student_profile",
+        return_value=(None, "GSTU_STUDENT: некорректный JSON"),
+    )
+    def test_broken_profile_raises_tool_error(self, mock_profile) -> None:
+        """Битая переменная окружения — ToolError при любом запросе расписания."""
+        with self.assertRaises(ToolError):
+            server.get_schedule("group", "iti-31", view="date", date="2026-09-21")
+
+    @patch("gstu_schedule_mcp.server.fetch_schedule", return_value=PAYLOAD)
+    @patch(
+        "gstu_schedule_mcp.server.load_student_profile",
+        return_value=({"group": "iti-31", "subgroup": 1}, None),
+    )
+    def test_profile_not_applied_for_teacher(self, mock_profile, mock_fetch) -> None:
+        """Профиль применяется только для типа group."""
+        server.get_schedule("teacher", "avakyan-s", view="date", date="2026-09-21")
+        url = mock_fetch.call_args.args[0]
+        self.assertIn("/teacher/avakyan-s", url)
+
+    @patch(
+        "gstu_schedule_mcp.server.load_student_profile",
+        return_value=({"group": "iti-31", "subgroup": 1}, None),
+    )
+    def test_get_student_profile_tool(self, mock_profile) -> None:
+        """Инструмент get_student_profile отдаёт профиль и статус configured."""
+        result = server.get_student_profile()
+        self.assertTrue(result["configured"])
+        self.assertEqual(result["profile"]["group"], "iti-31")
+        self.assertIsNone(result["error"])
+
+
 class WatchdogTests(unittest.TestCase):
     """Сторож родителя: завершает процесс при смене PPID, не трогает ручной запуск."""
 
     def test_watchdog_exits_on_parent_change(self) -> None:
-        """При смене PPID сторож вызывает os._exit(0) (завершение процесса)."""
+        """При смене PPID сторож вызывает os._exit(0) (завершение процесса).
+
+        os._exit в тесте замокан: бросает SystemExit, который threading гасит
+        в потоке, поэтому тест-раннер не погибает, а поток завершается сам.
+        Иначе живой поток на следующей итерации вызвал бы настоящий
+        os._exit(0) и убил бы весь процесс посреди прогона.
+        """
+
+        def fake_exit(code):
+            raise SystemExit(code)
+
         with (
             patch.object(server, "_INIT_PPID", 123),
             patch.object(server.os, "getppid", return_value=124),
-            patch.object(server.os, "_exit") as mock_exit,
+            patch.object(server.os, "_exit", side_effect=fake_exit) as mock_exit,
         ):
             server.spawn_parent_watchdog(interval=0.05)
             time.sleep(0.3)
-            # os._exit в тесте замокан и не убивает процесс, поэтому поток
-            # отрабатывает несколько итераций — важен сам факт вызова с кодом 0.
             self.assertGreaterEqual(mock_exit.call_count, 1)
             mock_exit.assert_called_with(0)
 

@@ -10,6 +10,13 @@
   `tests/test_mcp_server.py` (без сети).
 - Сторож родителя в MCP-сервере: при смерти сервиса opencode сервер
   завершается сам, не оставаясь «сиротой» (как в wayland-shot/calculator).
+- Профиль студента в MCP-сервере: переменная окружения `GSTU_STUDENT`
+  (JSON, подключается через opencode-ссылку `{file:...}` на файл в
+  `.secrets`), инструмент `get_student_profile`, дефолты группы/подгруппы
+  в `get_schedule` при пустом `slug`; шаблон `config.student.example.json`.
+### Изменено
+- Smoke-тест: добавлен аргумент `--student-profile FILE` (проверка
+  `get_student_profile` и расписания без `slug`).
 
 ## [1.0.0] - 2026-09-22
 ### Добавлено
