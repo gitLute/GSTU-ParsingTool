@@ -66,27 +66,42 @@ GSTU-ParsingTool/
 ## Требования
 
 - Python 3.9+ (используются только стандартные библиотеки; установка пакетов
-  не требуется).
+  при запуске не требуется, для сборки бинарника нужен только `pyinstaller`).
 
-## Запуск
+## Компиляция в бинарный файл
 
+Проект собирается в один исполняемый файл через
+[PyInstaller](https://pyinstaller.org/). Так как используются только модули
+стандартной библиотеки, дополнительные `--hidden-import` не требуются.
 Из корня проекта:
 
 ```bash
+pip install pyinstaller
+pyinstaller --onefile --clean --name gstu-parsing-tool src/main.py
+```
+
+Готовый бинарник появляется в каталоге `dist/`:
+
+- `dist/gstu-parsing-tool` — Linux/macOS;
+- `dist/gstu-parsing-tool.exe` — Windows.
+
+## Запуск
+
+После сборки бинарник запускается из корня проекта напрямую — без
+`PYTHONPATH`, `python3` и установки пакетов:
+
+```bash
 # весь вывод в консоль — неделя, содержащая сегодняшний день (если группа в конфиге)
-PYTHONPATH=src python3 -m gstu_schedule
+gstu-parsing-tool
 
 # расписание группы
-PYTHONPATH=src python3 -m gstu_schedule --type group --group iti-31
+gstu-parsing-tool --type group --group iti-31
 
 # расписание преподавателя
-PYTHONPATH=src python3 -m gstu_schedule --type teacher --teacher avakyan-s
+gstu-parsing-tool --type teacher --teacher avakyan-s
 
 # расписание аудитории
-PYTHONPATH=src python3 -m gstu_schedule --type classroom --classroom 2-306
-
-# то же без переменной окружения
-python3 src/main.py --group iti-31
+gstu-parsing-tool --type classroom --classroom 2-306
 ```
 
 ### Параметры командной строки
@@ -194,7 +209,7 @@ python3 src/main.py --group iti-31
 Пример:
 
 ```bash
-PYTHONPATH=src python3 -m gstu_schedule \
+gstu-parsing-tool \
   --lesson-format "{number}) {time} {subject_full} [{type}] — {teachers}, ауд. {rooms}"
 ```
 
@@ -207,78 +222,78 @@ PYTHONPATH=src python3 -m gstu_schedule \
 
 ```bash
 # Группа: день по дате, обе подгруппы
-PYTHONPATH=src python3 -m gstu_schedule --type group --group iti-31 --view date
+gstu-parsing-tool --type group --group iti-31 --view date
 
 # Группа: вся неделя по умолчанию из конфига
-PYTHONPATH=src python3 -m gstu_schedule
+gstu-parsing-tool
 
 # День по дате, только 1-я подгруппа
-PYTHONPATH=src python3 -m gstu_schedule --group iti-31 --view date --date 2026-09-16 --subgroup 1
+gstu-parsing-tool --group iti-31 --view date --date 2026-09-16 --subgroup 1
 
 # Преподаватель через эндпоинт
-PYTHONPATH=src python3 -m gstu_schedule --teacher avakyan-s
+gstu-parsing-tool --teacher avakyan-s
 
 # Аудитория через эндпоинт
-PYTHONPATH=src python3 -m gstu_schedule --classroom 2-306
+gstu-parsing-tool --classroom 2-306
 
 # Поиск преподавателя (автоподбор)
-PYTHONPATH=src python3 -m gstu_schedule --search "авакян"
+gstu-parsing-tool --search "авакян"
 
 # Поиск аудитории по номеру
-PYTHONPATH=src python3 -m gstu_schedule --search "306"
+gstu-parsing-tool --search "306"
 
 # Поиск группы (подстрока имени)
-PYTHONPATH=src python3 -m gstu_schedule --search "iti"
+gstu-parsing-tool --search "iti"
 
 # Поиск с выводом только готовых команд (для скриптов/подстановки)
-PYTHONPATH=src python3 -m gstu_schedule --search-hints "авакян"
+gstu-parsing-tool --search-hints "авакян"
 
 # Готовые команды удобно подставлять дальше:
-PYTHONPATH=src python3 -m gstu_schedule $(PYTHONPATH=src python3 -m gstu_schedule --search-hints "306" | head -1)
+gstu-parsing-tool $(gstu-parsing-tool --search-hints "306" | head -1)
 
 # Неделя с 21.09.2026 (нечётная), сохранить .md и .json
-PYTHONPATH=src python3 -m gstu_schedule --group iti-31 --date 2026-09-21 --format all
+gstu-parsing-tool --group iti-31 --date 2026-09-21 --format all
 
 # Только 2-я подгруппа, только markdown
-PYTHONPATH=src python3 -m gstu_schedule --group iti-31 --subgroup 2 --format md
+gstu-parsing-tool --group iti-31 --subgroup 2 --format md
 
 # То же, но в файл с произвольным именем
-PYTHONPATH=src python3 -m gstu_schedule --group iti-31 --subgroup 2 --format md --output-file my_schedule
+gstu-parsing-tool --group iti-31 --subgroup 2 --format md --output-file my_schedule
 
 # Только лекции и лабораторные (неделя по умолчанию)
-PYTHONPATH=src python3 -m gstu_schedule --lesson-type лек --lesson-type лаб
+gstu-parsing-tool --lesson-type лек --lesson-type лаб
 
 # Только занятия без типа (физкультура, кураторский час)
-PYTHONPATH=src python3 -m gstu_schedule --lesson-type none
+gstu-parsing-tool --lesson-type none
 
 # Только занятия, где в тексте есть "Разработка приложений" (регистронезависимо)
-PYTHONPATH=src python3 -m gstu_schedule --regex "разработка приложений"
+gstu-parsing-tool --regex "разработка приложений"
 
 # Занятия у преподавателя Иванова или в аудитории 2-3xx
-PYTHONPATH=src python3 -m gstu_schedule --regex "иванов" --regex "2-3\d\d"
+gstu-parsing-tool --regex "иванов" --regex "2-3\d\d"
 
 # Regex + фильтр по типу: лабораторные по "Трехмерное моделирование" и "Двумерная визуализация"
-PYTHONPATH=src python3 -m gstu_schedule --lesson-type лаб --regex "\b(трех|дву)\w*"
+gstu-parsing-tool --lesson-type лаб --regex "\b(трех|дву)\w*"
 
 # Комбинация фильтров: 1-я подгруппа, только практические, свой формат пары
-PYTHONPATH=src python3 -m gstu_schedule --group iti-31 --subgroup 1 --lesson-type пр \
+gstu-parsing-tool --group iti-31 --subgroup 1 --lesson-type пр \
   --lesson-format "{time} | {subject_full} | {groups} | {teachers}"
 
 # Сохранить JSON в другой каталог
-PYTHONPATH=src python3 -m gstu_schedule --format json --output-dir ./result
+gstu-parsing-tool --format json --output-dir ./result
 
 # Другая группа
-PYTHONPATH=src python3 -m gstu_schedule --group itp-31
+gstu-parsing-tool --group itp-31
 
 # Свой URL API (тип определяется автоматически по пути)
-PYTHONPATH=src python3 -m gstu_schedule \
+gstu-parsing-tool \
   --api-url "https://sc.gstu.by/api/schedules/teacher/avakyan-s"
 
-PYTHONPATH=src python3 -m gstu_schedule \
+gstu-parsing-tool \
   --api-url "https://sc.gstu.by/api/schedules/classroom/2-306"
 
 # Создать шаблон конфига и продолжить работу через config.json
-PYTHONPATH=src python3 -m gstu_schedule --write-default-config
+gstu-parsing-tool --write-default-config
 ```
 
 Результат сохраняется в файлы `{slug}_sub{subgroup}_{view}_{date}.md` и
