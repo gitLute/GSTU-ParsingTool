@@ -9,8 +9,6 @@ jobs:
   build:
     name: Build for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
@@ -45,19 +43,17 @@ jobs:
           fi
         shell: bash
 
-      - name: Upload to Release
-        if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
+      - name: Upload artifact to GitHub
+        uses: actions/upload-artifact@v4
         with:
-          files: dist/${{ env.ASSET_NAME }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: binary-${{ runner.os }}
+          path: dist/${{ env.ASSET_NAME }}
+          retention-days: 1
 
-  update-release-body:
-    name: Update Release Body
-    runs-on: ubuntu-latest
+  release:
+    name: Publish Release
     needs: build
-    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
     permissions:
       contents: write
 
@@ -65,8 +61,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
       - name: Generate Release Body
+        if: github.event_name == 'release'
         run: |
+          TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
 
           gh release view "$TAG" --json body --jq '.body' > release_body.md 2>/dev/null || touch release_body.md
@@ -98,11 +102,12 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
 
-      - name: Publish Release Body
-        run: gh release edit "$TAG" --body-file release_body.md
-        shell: bash
+      - name: Upload Assets and Body to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          body_path: release_body.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
