@@ -8,6 +8,8 @@
   `gstu-schedule-mcp-server`.
 - Smoke-тест MCP-сервера `scripts/selftest.py` и юнит-тесты
   `tests/test_mcp_server.py` (без сети).
+- Сторож родителя в MCP-сервере: при смерти сервиса opencode сервер
+  завершается сам, не оставаясь «сиротой» (как в wayland-shot/calculator).
 
 ## [1.0.0] - 2026-09-22
 ### Добавлено

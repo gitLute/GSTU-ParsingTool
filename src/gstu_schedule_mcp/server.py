@@ -18,7 +18,16 @@
 
 import argparse
 import datetime as dt
+import os
 import sys
+import threading
+import time
+
+# PPID, зафиксированный при импорте модуля: родитель — сервис opencode,
+# запустивший процесс. Захват на раннем этапе важен: сторож должен знать
+# исходного родителя, а не subreaper'а, к которому процесс будет
+# переподчинён после смерти родителя.
+_INIT_PPID = os.getppid()
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
@@ -311,6 +320,32 @@ def search_entities(query: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def spawn_parent_watchdog(interval=2.0):
+    """Фоновый поток, завершающий процесс, если умер процесс-родитель.
+
+    Локальные MCP-серверы opencode запускает как детей фонового сервиса
+    (`opencode serve --service`). При штатном отключении транспорта сервер
+    завершается сам (EOF на stdin), но если родитель погибает без закрытия
+    каналов (kill -9, падение сервиса), процесс остаётся «сиротой» и висит
+    в системе. Сторож следит за сменой PPID: осиротевший процесс
+    переподчиняется init/subreaper'у, и его текущий PPID отличается от
+    исходного — тогда сторож завершает сервер принудительно.
+
+    Запущенный вручную (родитель — init, PPID <= 1) сервер не трогаем.
+    """
+    initial = _INIT_PPID
+    if initial <= 1:
+        return
+
+    def _watch():
+        while True:
+            time.sleep(interval)
+            if os.getppid() != initial:
+                os._exit(0)
+
+    threading.Thread(target=_watch, daemon=True).start()
+
+
 def main(argv=None):
     """Запуск MCP-сервера (по умолчанию транспорт stdio)."""
     ap = argparse.ArgumentParser(
@@ -338,6 +373,9 @@ def main(argv=None):
         )
         mcp.run(transport="sse")
     else:
+        # Сторож родителя: если сервис opencode, породивший этот процесс,
+        # завершится, сервер закроется сам и не останется «сиротой».
+        spawn_parent_watchdog()
         mcp.run(transport="stdio")
 
 

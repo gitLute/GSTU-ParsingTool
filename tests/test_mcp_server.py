@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import time
 import unittest
 from unittest.mock import patch
 
 from mcp.server.fastmcp.exceptions import ToolError
 
+import gstu_schedule_mcp.server as server
 from gstu_schedule_mcp.server import build_schedule_data, build_search_data
 
 PAYLOAD = {
@@ -203,6 +205,33 @@ class BuildSearchDataTests(unittest.TestCase):
     def test_api_failure(self, mock_fetch) -> None:
         with self.assertRaises(ToolError):
             build_search_data("iti")
+
+
+class WatchdogTests(unittest.TestCase):
+    """Сторож родителя: завершает процесс при смене PPID, не трогает ручной запуск."""
+
+    def test_watchdog_exits_on_parent_change(self) -> None:
+        """При смене PPID сторож вызывает os._exit(0) (завершение процесса)."""
+        with (
+            patch.object(server, "_INIT_PPID", 123),
+            patch.object(server.os, "getppid", return_value=124),
+            patch.object(server.os, "_exit") as mock_exit,
+        ):
+            server.spawn_parent_watchdog(interval=0.05)
+            time.sleep(0.3)
+            # os._exit в тесте замокан и не убивает процесс, поэтому поток
+            # отрабатывает несколько итераций — важен сам факт вызова с кодом 0.
+            self.assertGreaterEqual(mock_exit.call_count, 1)
+            mock_exit.assert_called_with(0)
+
+    def test_watchdog_skipped_for_manual_launch(self) -> None:
+        """При ручном запуске (PPID <= 1) поток не создаётся."""
+        with (
+            patch.object(server, "_INIT_PPID", 0),
+            patch.object(server.threading, "Thread") as mock_thread,
+        ):
+            server.spawn_parent_watchdog(interval=0.05)
+            mock_thread.assert_not_called()
 
 
 if __name__ == "__main__":
