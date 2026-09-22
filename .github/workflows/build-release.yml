@@ -1,0 +1,91 @@
+name: Build and Release Binaries
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Build executable
+        run: pyinstaller --onefile --clean --name gstu-parsing-tool src/main.py
+        shell: bash
+
+      - name: Prepare artifact name
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            mv dist/gstu-parsing-tool dist/gstu-parsing-tool-linux-x86_64
+            echo "ASSET_NAME=gstu-parsing-tool-linux-x86_64" >> $GITHUB_ENV
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            mv dist/gstu-parsing-tool.exe dist/gstu-parsing-tool-windows-x86_64.exe
+            echo "ASSET_NAME=gstu-parsing-tool-windows-x86_64.exe" >> $GITHUB_ENV
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+            mv dist/gstu-parsing-tool dist/gstu-parsing-tool-macos-arm64
+            echo "ASSET_NAME=gstu-parsing-tool-macos-arm64" >> $GITHUB_ENV
+          fi
+        shell: bash
+
+      - name: Generate Release Body
+        if: github.event_name == 'release'
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+
+          gh release view "$TAG" --json body --jq '.body' > release_body.md 2>/dev/null || touch release_body.md
+
+          if [ -f CHANGELOG.md ]; then
+            CHANGELOG_SECTION=$(awk -v ver="$VERSION" '
+              $0 ~ "^## \\[v?" ver "\\]" {
+                in_section = 1;
+                next;
+              }
+              /^## / {
+                if (in_section) exit;
+              }
+              in_section { print }
+            ' CHANGELOG.md)
+
+            if [ -n "$CHANGELOG_SECTION" ]; then
+              echo "" >> release_body.md
+              echo "---" >> release_body.md
+              echo "$CHANGELOG_SECTION" >> release_body.md
+            else
+              echo "" >> release_body.md
+              echo "*Секция для версии \`$VERSION\` не найдена в \`CHANGELOG.md\`.*" >> release_body.md
+            fi
+          else
+            echo "" >> release_body.md
+            echo "*Файл \`CHANGELOG.md\` отсутствует в репозитории.*" >> release_body.md
+          fi
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/${{ env.ASSET_NAME }}
+          body_path: release_body.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
