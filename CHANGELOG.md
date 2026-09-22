@@ -13,7 +13,8 @@
 - Профиль студента в MCP-сервере: переменная окружения `GSTU_STUDENT`
   (JSON, подключается через opencode-ссылку `{file:...}` на файл в
   `.secrets`), инструмент `get_student_profile`, дефолты группы/подгруппы
-  в `get_schedule` при пустом `slug`; шаблон `config.student.example.json`.
+  в `get_schedule` при пустом `slug`; шаблон `config.student.example.json`;
+  поле `notes` — дополнительная информация, может быть пустой.
 ### Изменено
 - Smoke-тест: добавлен аргумент `--student-profile FILE` (проверка
   `get_student_profile` и расписания без `slug`).

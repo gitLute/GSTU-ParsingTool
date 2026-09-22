@@ -228,15 +228,30 @@ class StudentProfileTests(unittest.TestCase):
         self.assertIsNone(error)
 
     def test_valid_json(self) -> None:
-        """Валидный JSON-объект читается целиком."""
+        """Валидный JSON-объект читается целиком, включая notes."""
         payload = json.dumps(
-            {"fullName": "Иванов Иван Иванович", "group": "iti-31", "subgroup": 2}
+            {
+                "fullName": "Иванов Иван Иванович",
+                "group": "iti-31",
+                "subgroup": 2,
+                "notes": "староста, допуск к сессии",
+            }
         )
         profile, error = self._with_env(payload)
         self.assertIsNone(error)
         self.assertEqual(profile["group"], "iti-31")
         self.assertEqual(profile["subgroup"], 2)
         self.assertEqual(profile["fullName"], "Иванов Иван Иванович")
+        self.assertEqual(profile["notes"], "староста, допуск к сессии")
+
+    def test_empty_notes_ok(self) -> None:
+        """Пустое поле notes допустимо, отсутствие notes тоже."""
+        profile, error = self._with_env(json.dumps({"group": "iti-31", "notes": ""}))
+        self.assertIsNone(error)
+        self.assertEqual(profile["notes"], "")
+        profile, error = self._with_env(json.dumps({"group": "iti-31"}))
+        self.assertIsNone(error)
+        self.assertNotIn("notes", profile)
 
     def test_broken_json(self) -> None:
         """Некорректный JSON — ошибка с именем переменной."""
@@ -261,6 +276,12 @@ class StudentProfileTests(unittest.TestCase):
         profile, error = self._with_env(json.dumps({"subgroup": 0}))
         self.assertIsNone(profile)
         self.assertIn("subgroup", error)
+
+    def test_bad_notes_field(self) -> None:
+        """notes не строка (например, число) — ошибка."""
+        profile, error = self._with_env(json.dumps({"notes": 123}))
+        self.assertIsNone(profile)
+        self.assertIn("notes", error)
 
     @patch("gstu_schedule_mcp.server.fetch_schedule", return_value=PAYLOAD)
     @patch(
@@ -321,13 +342,17 @@ class StudentProfileTests(unittest.TestCase):
 
     @patch(
         "gstu_schedule_mcp.server.load_student_profile",
-        return_value=({"group": "iti-31", "subgroup": 1}, None),
+        return_value=(
+            {"group": "iti-31", "subgroup": 1, "notes": "староста"},
+            None,
+        ),
     )
     def test_get_student_profile_tool(self, mock_profile) -> None:
         """Инструмент get_student_profile отдаёт профиль и статус configured."""
         result = server.get_student_profile()
         self.assertTrue(result["configured"])
         self.assertEqual(result["profile"]["group"], "iti-31")
+        self.assertEqual(result["profile"]["notes"], "староста")
         self.assertIsNone(result["error"])
 
 

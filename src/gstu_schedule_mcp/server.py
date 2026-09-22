@@ -139,6 +139,9 @@ def _validate_profile(data: dict) -> str | None:
         isinstance(subgroup, bool) or not isinstance(subgroup, int) or subgroup < 1
     ):
         return "поле subgroup должно быть положительным целым числом"
+    notes = data.get("notes")
+    if notes is not None and not isinstance(notes, str):
+        return "поле notes должно быть строкой (может быть пустой)"
     return None
 
 
@@ -147,7 +150,7 @@ def load_student_profile() -> tuple[dict | None, str | None]:
 
     Возвращает пару (профиль, ошибка). Переменная не задана — (None, None);
     задана, но содержимое не является валидным JSON-объектом с корректными
-    полями group/subgroup — (None, описание ошибки) для диагностики.
+    полями group/subgroup/notes — (None, описание ошибки) для диагностики.
     """
     raw = os.environ.get(STUDENT_PROFILE_ENV, "").strip()
     if not raw:
@@ -359,9 +362,10 @@ def get_schedule(
         "Профиль студента из переменной окружения GSTU_STUDENT (JSON; обычно "
         "подключается в opencode.json через ссылку {file:...} на файл в "
         ".secrets). Возвращает configured (true/false), профиль (ФИО, группа, "
-        "подгруппа, курс, специальность и т.п.) и error при некорректном "
-        "содержимом. Поля group и subgroup используются get_schedule как "
-        "значения по умолчанию, когда slug не задан."
+        "подгруппа, курс, специальность, notes — дополнительная информация, "
+        "может быть пустой) и error при некорректном содержимом. Поля group "
+        "и subgroup используются get_schedule как значения по умолчанию, "
+        "когда slug не задан."
     )
 )
 def get_student_profile() -> dict:

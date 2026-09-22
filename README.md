@@ -402,12 +402,15 @@ PYTHONPATH=src python3 -m gstu_schedule_mcp --stdio
   "subgroup": 1,
   "course": 3,
   "faculty": "Факультет автоматизированных и информационных систем",
-  "specialty": "Информационные системы и технологии"
+  "specialty": "Информационные системы и технологии",
+  "notes": ""
 }
 ```
 
 Логически используются только поля `group` (slug группы) и `subgroup`
-(номер подгруппы) — остальные информационные. Если переменная задана,
+(номер подгруппы) — остальные информационные. Поле `notes` — свободная
+дополнительная информация (староста, допуск, пожелания и т.п.), может
+отсутствовать или быть пустой строкой. Если переменная задана,
 но её содержимое не является валидным JSON-объектом, `get_schedule`
 вернёт `ToolError` с описанием проблемы, а `get_student_profile` —
 статус `configured: false` и текст ошибки.
@@ -424,7 +427,7 @@ PYTHONPATH=src python3 -m gstu_schedule_mcp --stdio
 |---|---|
 | `get_schedule` | расписание группы (`iti-31`), преподавателя (`avakyan-s`) или аудитории (`2-306`) на неделю/дату; фильтры: `subgroup`, `lesson_types` (лаб/лек/пр, `none` — без типа), `regex_filter`, `semester_start`; опциональный шаблон занятия `lesson_format` (`{number} {time} {subject} {subject_full} {type} {type_full} {groups} {teachers} {rooms} {week}`); при пустом `slug` и типе `group` используются группа/подгруппа из профиля `GSTU_STUDENT` |
 | `search_entities` | поиск по автоподбору: подстрока имени/номера → сущности со `slug` для `get_schedule` |
-| `get_student_profile` | профиль студента из `GSTU_STUDENT`: `configured`, данные профиля, `error` при некорректном содержимом |
+| `get_student_profile` | профиль студента из `GSTU_STUDENT`: `configured`, данные профиля (`fullName`, `group`, `subgroup`, `course`, `specialty`, `notes` и др.), `error` при некорректном содержимом |
 
 ### Примеры использования агентом
 

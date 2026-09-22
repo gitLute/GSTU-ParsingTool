@@ -161,6 +161,8 @@ async def main(args: argparse.Namespace) -> int:
                         f"  group={p.get('group')}, subgroup={p.get('subgroup')}, "
                         f"fullName={p.get('fullName')}"
                     )
+                    if p.get("notes"):
+                        print(f"  notes={p.get('notes')}")
                 prof_args = {"schedule_type": "group", "view": args.view}
                 if args.date:
                     prof_args["date"] = args.date
