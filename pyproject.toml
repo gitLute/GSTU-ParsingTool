@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gstu-schedule"
+version = "1.0.0"
+description = "Расписание занятий ГГТУ им. П. О. Сухого: консольная утилита и MCP-сервер"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "mcp>=1.12",
+]
+
+[project.scripts]
+gstu-schedule-mcp-server = "gstu_schedule_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gstu_schedule", "src/gstu_schedule_mcp"]

@@ -50,15 +50,21 @@
 GSTU-ParsingTool/
 ├── src/
 │   ├── main.py                    # запуск: python3 src/main.py
-│   └── gstu_schedule/
-│       ├── __main__.py            # запуск: python3 -m gstu_schedule
-│       ├── cli.py                 # аргументы командной строки
-│       ├── config.py              # загрузка конфига (config.json)
-│       ├── fetcher.py             # HTTP-запрос к API
-│       ├── models.py              # модели и парсер ответа API
-│       ├── engine.py              # фильтры по дате/неделе и подгруппе
-│       ├── formatters.py          # вывод: консоль, Markdown, JSON
-│       └── app.py                 # оркестрация
+│   ├── gstu_schedule/
+│   │   ├── __main__.py            # запуск: python3 -m gstu_schedule
+│   │   ├── cli.py                 # аргументы командной строки
+│   │   ├── config.py              # загрузка конфига (config.json)
+│   │   ├── fetcher.py             # HTTP-запрос к API
+│   │   ├── models.py              # модели и парсер ответа API
+│   │   ├── engine.py              # фильтры по дате/неделе и подгруппе
+│   │   ├── formatters.py          # вывод: консоль, Markdown, JSON
+│   │   └── app.py                 # оркестрация
+│   └── gstu_schedule_mcp/
+│       ├── __main__.py            # запуск: python3 -m gstu_schedule_mcp
+│       └── server.py              # MCP-сервер (FastMCP)
+├── scripts/
+│   └── selftest.py                # smoke-тест MCP-сервера (stdio + реальный API)
+├── pyproject.toml                 # сборка/установка пакета (incl. MCP-сервера)
 ├── config.json                    # конфигурация по умолчанию
 └── README.md
 ```
@@ -310,6 +316,90 @@ gstu-parsing-tool --write-default-config
 разные занятия — такие пары выводятся отдельными строками/строками таблицы.
 Для расписаний преподавателей и аудиторий одинаковые пары (один предмет,
 преподаватель, время и аудитория) объединяются в одну запись со списком групп.
+
+## MCP-сервер
+
+Помимо консольной утилиты проект включает MCP-сервер (Model Context
+Protocol) — модуль `gstu_schedule_mcp`. Через него LLM-агент (например,
+opencode) получает расписание занятий напрямую:
+
+- `get_schedule` — расписание группы/преподавателя/аудитории на неделю
+  или конкретную дату с фильтрами по подгруппе, типу занятия и
+  регулярным выражениям;
+- `search_entities` — автоподбор сущностей по подстроке (группы,
+  преподаватели, аудитории) с выдачей `slug` для подстановки.
+
+Сервер переиспользует парсер и логику выбора занятий консольной утилиты
+(`gstu_schedule`), поэтому результаты идентичны CLI: та же неделя,
+чётность, объединение дублирующихся пар, фильтры.
+
+### Установка
+
+Пакет устанавливается в Python-venv для MCP-серверов
+`/home/lute/.local/bin/MCP/PytnonVenv` (Python 3.10+, `mcp>=1.12`):
+
+```bash
+/home/lute/.local/bin/MCP/PytnonVenv/bin/pip install -e .
+```
+
+После установки появляется консольный скрипт:
+
+```bash
+/home/lute/.local/bin/MCP/PytnonVenv/bin/gstu-schedule-mcp-server --stdio
+```
+
+Пакет также можно запустить из исходников без установки:
+
+```bash
+PYTHONPATH=src python3 -m gstu_schedule_mcp --stdio
+```
+
+### Подключение к opencode
+
+В `~/.config/opencode/opencode.json` в секцию `mcp.servers` добавляется:
+
+```json
+"gstu-schedule": {
+  "type": "local",
+  "command": [
+    "/home/lute/.local/bin/MCP/PytnonVenv/bin/gstu-schedule-mcp-server",
+    "--stdio"
+  ]
+}
+```
+
+После перезапуска opencode сервер доступен как `gstu-schedule`.
+
+### Инструменты
+
+| Инструмент | Назначение |
+|---|---|
+| `get_schedule` | расписание группы (`iti-31`), преподавателя (`avakyan-s`) или аудитории (`2-306`) на неделю/дату; фильтры: `subgroup`, `lesson_types` (лаб/лек/пр, `none` — без типа), `regex_filter`, `semester_start`; опциональный шаблон занятия `lesson_format` (`{number} {time} {subject} {subject_full} {type} {type_full} {groups} {teachers} {rooms} {week}`) |
+| `search_entities` | поиск по автоподбору: подстрока имени/номера → сущности со `slug` для `get_schedule` |
+
+### Примеры использования агентом
+
+1. Найти группу по подстроке: `search_entities(query="iti")`.
+2. Показать расписание на неделю: `get_schedule(schedule_type="group", slug="iti-31", view="week")`.
+3. Один день только 1-й подгруппы: `get_schedule(schedule_type="group", slug="iti-31", view="date", date="2026-09-21", subgroup=1)`.
+4. Лабораторные у преподавателя: `get_schedule(schedule_type="teacher", slug="avakyan-s", lesson_types=["лаб"])`.
+5. Поиск аудитории по номеру и её расписание:
+   `search_entities(query="306")` → `get_schedule(schedule_type="classroom", slug="2-306")`.
+
+### Smoke-тест
+
+Скрипт запускает сервер как stdio-процесс и проверяет оба инструмента
+с реальным API:
+
+```bash
+/home/lute/.local/bin/MCP/PytnonVenv/bin/python scripts/selftest.py
+```
+
+Аргументы: `--type group|teacher|classroom`, `--slug`, `--date`, `--view`,
+`--subgroup`, `--lesson-types`, `--regex`, `--format`, `--search`.
+
+Юнит-тесты не требуют сети и проверяют построение данных на синтетических
+ответах API (`tests/test_mcp_server.py`).
 
 ## Тесты
 
